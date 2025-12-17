@@ -42,6 +42,7 @@ pipeline {
     agent { node "${node}" }
     environment {
         PATH = "/home/jenkins/.local/bin:${env.PATH}"
+        PYLINTRC = "/home/jenkins/agent/${giteeRepoName}/.pylintrc"
     }
     stages {
         stage("clone embedded-ci"){
