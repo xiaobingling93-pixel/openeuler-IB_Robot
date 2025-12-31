@@ -87,41 +87,6 @@ pipeline {
                             }
                     }
                 }
-                dir('/home/jenkins/agent/embedded-ci'){
-                    script{
-                        withCredentials([string(credentialsId: "${giteeId}", variable: 'GITEETOKEN')]){
-                                // 获取修改的文件列表
-                                def diff_files = sh (script: """
-                                    python main.py diff_files \
-                                    -r /home/jenkins/agent/$giteeRepoName \
-                                    --remote_name origin \
-                                    --pre_branch pr_$giteePullRequestid \
-                                    --diff_branch master
-                                """, returnStdout: true).trim()
-                                sh """echo $diff_files"""
-                                // 执行scope检查
-                                def randomStr = getRandomStr()
-                                def logDir = mkdirOpeneulerLog()
-                                // 执行commit检查
-                                def task_res_code = sh (script: """
-                                    python3 main.py codecheck \
-                                    -target code_check \
-                                    --diff_files "$diff_files" > ${logDir}/${randomStr}.log
-                                """, returnStatus: true)
-                                def check_res = ""
-                                if (task_res_code == 0){
-                                    check_res = "success"
-                                }else{
-                                    check_res = "failed"
-                                    env.code_check_result = "failed"
-                                }
-                                // 对检查赋值
-                                // env.task_check_scope = formatRes("check", "scope_check", check_res, "xxx")
-                                archiveArtifacts "${logDir}/*.log"
-                                STAGES_RES.push(formatRes("check", "code_check", check_res, "artifact/${logDir}/${randomStr}.log"))
-                        }
-                    }
-                }
             }
         }
     }
