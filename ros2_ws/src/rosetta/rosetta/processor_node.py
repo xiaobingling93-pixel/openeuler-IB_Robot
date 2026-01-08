@@ -9,10 +9,11 @@ from typing import List, Any, Dict, Optional
 from pathlib import Path
 from dataclasses import dataclass
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, ExternalShutdownException
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rosidl_runtime_py.utilities import get_message
 from lerobot.policies.factory import make_pre_post_processors
+import numpy as np
 from rosetta.common.contract_utils import (
     load_contract,
     iter_specs,
@@ -78,9 +79,11 @@ class ProcessorNode(Node):
         self.declare_parameter("policy_path", "")
         # TODO: refector by using common device_from_param function
         self.declare_parameter("policy_device", "cuda")
+        self.declare_parameter("use_header_time", True)
 
         # ---------------- Contract ----------------
         contract_path = str(self.get_parameter("contract_path").value or "")
+        self._use_header_time = bool(self.get_parameter("use_header_time").value)
         if not contract_path:
             raise RuntimeError("policy_bridge: 'contract_path' is required")
         self._contract = load_contract(Path(contract_path))
@@ -98,6 +101,8 @@ class ProcessorNode(Node):
         self.fps = int(self._contract.rate_hz)
         self.device = _device_from_param(str(self.get_parameter("policy_device").value))
 
+        # TODO: read from robot interface instead of hardcoding
+        self._prompt = "Grasp the banana and put it on the plate"
         if self.fps <= 0:
             raise ValueError("Contract rate_hz must be >= 1")
         self.step_ns = int(round(1e9 / self.fps))
@@ -134,23 +139,6 @@ class ProcessorNode(Node):
                 "device_processor": {"device": str(self.device)}},
         )
 
-        # TODO: refector init function
-        """
-        SpecView(
-           key='observation.images.top', 
-           topic='/camera/top', 
-           ros_type='sensor_msgs/msg/Image', 
-           is_action=False, names=[], 
-           image_resize=(480, 640), 
-           image_encoding='bgr8', 
-           image_channels=3, 
-           resample_policy='hold', 
-           asof_tol_ms=1500
-           stamp_src='header'
-           clamp=None
-           safety_behavior=None
-        )
-        """
         # ---------------- Sub & Pubs ----------------
         for s in self._obs_specs:
             k, meta, _ = feature_from_spec(s, use_videos=False)
@@ -174,15 +162,13 @@ class ProcessorNode(Node):
                 stamp_src=s.stamp_src,
             )
             
-            pub = self.create_publisher(
-                msg_cls, PROCESSED_PREFIX + s.topic,
-                qos_profile_from_dict(self._obs_qos_by_key.get(s.key)),
-                callback_group=self._cbg,
-            )
-            self._ros_pub_dict[dict_key] = pub
-
-    def _process(self, val):
-        return val
+            # TODO: Variants encode & pubishers
+        
+        # ---------------- Timer ----------------
+        self._cbg_timers = ReentrantCallbackGroup()
+        self._producer_timer = self.create_timer(
+            self.step_sec, self._process_tick, callback_group=self._cbg_timers
+        )
 
     # ---------------- Sub callback ----------------
     def _obs_cb(self, msg, spec: SpecView) -> None:
@@ -192,27 +178,153 @@ class ProcessorNode(Node):
         ts_ns = int(
             ts) if ts is not None else self.get_clock().now().nanoseconds
         val = decode_value(spec.ros_type, msg, spec)
-
-        pub = self._ros_pub_dict[self._make_dict_key(spec)]
-        processed_val = self._process(val)
-        # TODO: encode
-        pub.publish(msg)
+        if val is not None:
+            dict_key = self._make_dict_key(spec)
+            self._subs[dict_key].buf.push(ts_ns, val)
     
     def _make_dict_key(self, spec: SpecView) -> str:
         """Create unique dict key for multiple observation.state specs."""
         if spec.key == "observation.state" and len(self._state_specs) > 1:
             return f"{spec.key}_{spec.topic.replace('/', '_')}"
         return spec.key
+    
+    def _process_tick(self) -> None:
+        sample_t_ns = None
+        if self._use_header_time:
+            ts = self._get_most_recent_image_timestamp()
+            # Guard: if header time is too stale relative to node clock, ignore it
+            if ts is not None:
+                skew = self.get_clock().now().nanoseconds - ts
+                if 0 <= skew <= int(500e6):  # <= 500 ms stale is OK
+                    sample_t_ns = ts
+        if sample_t_ns is None:
+            sample_t_ns = self.get_clock().now().nanoseconds
+
+        obs_frame = self._sample_obs_frame(sample_t_ns)
+        batch = self._prepare(obs_frame)
+        batch = self.preprocessor(batch)
+        self.get_logger().info(f"===== Processed batch at {sample_t_ns} ns =====")
+        for key in batch:
+            if key.startswith("task"):
+                self.get_logger().info(f"Processed {key}: {batch[key]}")
+            elif isinstance(batch[key], torch.Tensor):
+                self.get_logger().info(f"Processed {key}: {batch[key].shape}, dtype={batch[key].dtype}")
+            else:
+                self.get_logger().info(f"Processed {key}: {batch[key]}")
+    
+    def _sample_obs_frame(self, sample_t_ns: int) -> Dict[str, Any]:
+        obs_frame: Dict[str, Any] = {}
+        
+        # Handle multiple observation.state specs by consolidating them
+        if len(self._state_specs) > 1:
+            state_parts = []
+            for sv in self._state_specs:
+                dict_key = f"{sv.key}_{sv.topic.replace('/', '_')}"
+                if dict_key in self._subs:
+                    v = self._subs[dict_key].buf.sample(sample_t_ns)
+                    if v is None:
+                        zp = self._obs_zero[dict_key]
+                        v = zp.copy() if isinstance(zp, np.ndarray) else zp
+                        self.get_logger().warning(f"Observation {dict_key} is None, zero padding")
+                    state_parts.append(v)
+                else:
+                    # Fallback to zero padding if subscription missing
+                    zp = self._obs_zero.get(dict_key, np.zeros((len(sv.names),), dtype=np.float32))
+                    state_parts.append(zp.copy() if isinstance(zp, np.ndarray) else zp)
+            
+            # Concatenate all state parts in contract order
+            if state_parts:
+                obs_frame["observation.state"] = np.concatenate(state_parts, axis=0)
+            else:
+                obs_frame["observation.state"] = np.zeros((0,), dtype=np.float32)
+        
+        # Handle all other observations
+        for key, st in self._subs.items():
+            # Skip individual state keys if we have multiple state specs (already handled above)
+            if key.startswith("observation.state_") and len(self._state_specs) > 1:
+                continue
+                
+            v = st.buf.sample(sample_t_ns)
+            if v is None:
+                zp = self._obs_zero[key]
+                obs_frame[key] = zp.copy() if isinstance(
+                    zp, np.ndarray) else zp
+                self.get_logger().warning(f"Observation {key} is None, zero padding")
+            else:
+                obs_frame[key] = v
+        obs_frame["task"] = self._prompt
+        return obs_frame
+
+    def _prepare(self, obs_frame: Dict[str, Any]) -> Dict[str, Any]:
+        batch: Dict[str, Any] = {}
+        for k, v in obs_frame.items():
+            if v is None:
+                continue
+            if isinstance(v, str):
+                batch[k] = v
+                continue
+            if isinstance(v, np.ndarray):
+                t = torch.from_numpy(v)
+                if t.ndim == 3 and t.shape[2] in (1, 3, 4):
+                    t = t.permute(2, 0, 1).unsqueeze(0).contiguous()
+                    if np.issubdtype(v.dtype, np.integer):
+                        max_val = float(np.iinfo(v.dtype).max)
+                        t = t.to(self.device, dtype=torch.float32) / max_val
+                    else:
+                        t = t.to(self.device, dtype=torch.float32)
+                    batch[k] = t
+                    continue
+                batch[k] = torch.as_tensor(
+                    v, dtype=torch.float32, device=self.device)
+                continue
+            if torch.is_tensor(v):
+                t = v
+                if t.ndim == 3 and t.shape[2] in (1, 3, 4):
+                    t = t.permute(2, 0, 1).unsqueeze(0).contiguous()
+                batch[k] = t.to(self.device, dtype=torch.float32)
+                continue
+            try:
+                batch[k] = torch.as_tensor(
+                    v, dtype=torch.float32, device=self.device)
+            except (ValueError, TypeError, RuntimeError):
+                pass
+        return batch
+
+    def _get_most_recent_image_timestamp(self) -> Optional[int]:
+        """Get the timestamp of the most recent primary image observation."""
+        # Look for image observations by checking if the spec has image_resize set
+        image_keys = []
+        for key, sub_state in self._subs.items():
+            if hasattr(sub_state.spec, 'image_resize') and sub_state.spec.image_resize is not None:
+                image_keys.append(key)
+        
+        if not image_keys:
+            return None
+            
+        # Get the most recent timestamp from image observations
+        most_recent_ts = None
+        for key in image_keys:
+            latest_ts = getattr(self._subs[key].buf, 'last_ts', None)
+            if latest_ts is not None:
+                if most_recent_ts is None or latest_ts > most_recent_ts:
+                    most_recent_ts = latest_ts
+        
+        # Optional: log clock skew for debugging
+        if most_recent_ts is not None:
+            skew_ms = (self.get_clock().now().nanoseconds - most_recent_ts) / 1e6
+            self.get_logger().info(f"obs-header skew: {skew_ms:.1f} ms")
+                    
+        return most_recent_ts
 
 def main():
     """Main function to run the processors pipeline node."""
     try:
         rclpy.init()
         node = ProcessorNode()
-        exe = SingleThreadedExecutor()
+        exe = MultiThreadedExecutor(num_threads=4)
         exe.add_node(node)
         exe.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         rclpy.shutdown()
