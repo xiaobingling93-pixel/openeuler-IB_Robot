@@ -347,4 +347,67 @@ def _decode_multidof_via_names(msg, names: List[str]) -> np.ndarray:
     return np.asarray(out, dtype=np.float32)
 
 
-# Note: All decoders now handle dotted names internally, so no generic decoder needed
+# ---------- Variant decoders ----------
+def _dec_variant(msg) -> np.ndarray:
+    """Decode a single Variant message into a numpy array.
+    
+    The type field indicates which array field contains the data:
+    - "bool_array" → bool array
+    - "int_32_array" → int32 array
+    - "int_64_array" → int64 array
+    - "float_32_array" → float32 array
+    - "float_64_array" → float64 array
+    
+    Returns:
+        np.ndarray: The decoded array with appropriate dtype
+    """
+    variant_type = str(msg.type).strip()
+    
+    type_map = {
+        "bool_array": (msg.bool_array, bool),
+        "int_32_array": (msg.int_32_array, np.int32),
+        "int_64_array": (msg.int_64_array, np.int64),
+        "float_32_array": (msg.float_32_array, np.float32),
+        "float_64_array": (msg.float_64_array, np.float64),
+    }
+    
+    if variant_type not in type_map:
+        raise ValueError(f"Unsupported variant type: {variant_type}")
+    
+    array_msg, dtype = type_map[variant_type]
+    
+    # Handle bool array specially (stored as list, not MultiArray)
+    if variant_type == "bool_array":
+        return np.asarray(array_msg, dtype=dtype)
+    
+    # For numeric types, use MultiArray decoding
+    data = np.asarray(array_msg.data, dtype=dtype)
+    
+    # Reshape according to layout if available
+    if array_msg.layout.dim:
+        shape = tuple(dim.size for dim in array_msg.layout.dim)
+        if shape and np.prod(shape) == data.size:
+            data = data.reshape(shape)
+    
+    return data
+
+
+def dec_variant_list(msg) -> Dict[str, np.ndarray]:
+    """Decode a VariantsList message into a dictionary of numpy arrays.
+    
+    Args:
+        msg: rosetta_interfaces/msg/VariantsList message
+        
+    Returns:
+        Dict[str, np.ndarray]: Dictionary mapping keys to decoded numpy arrays
+    """
+    result = {}
+    
+    for variant_msg in msg.variants:
+        key = str(variant_msg.key)
+        value = _dec_variant(variant_msg)
+        result[key] = value
+    
+    return result
+
+

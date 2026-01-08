@@ -9,12 +9,15 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(action_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 # Generate interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Variant.msg"
+  "msg/VariantsList.msg"
   "action/RecordEpisode.action"
   "action/RunPolicy.action"
-  DEPENDENCIES action_msgs
+  DEPENDENCIES std_msgs action_msgs
 )
 
 if(BUILD_TESTING)

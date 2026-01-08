@@ -27,7 +27,9 @@ from rosetta.common.contract_utils import (
     stamp_from_header_ns,
     encode_value,
 )
+from rosetta.common.encoders import enc_variant_list
 import torch
+from time import perf_counter
 
 # Prefix to indicate data has been processed
 PROCESSED_PREFIX = "processed"
@@ -161,8 +163,14 @@ class ProcessorNode(Node):
                 buf=StreamBuffer(policy=s.resample_policy, step_ns=self.step_ns, tol_ns=tol_ns),
                 stamp_src=s.stamp_src,
             )
-            
-            # TODO: Variants encode & pubishers
+        
+        # TODO: hardcoded variant topic name
+        VARIANT_TOPIC = "/rosetta/batch"
+        self._variant_pub = self.create_publisher(
+            get_message("rosetta_interfaces/msg/VariantsList"),
+            VARIANT_TOPIC,
+            10,
+        )
         
         # ---------------- Timer ----------------
         self._cbg_timers = ReentrantCallbackGroup()
@@ -203,14 +211,11 @@ class ProcessorNode(Node):
         obs_frame = self._sample_obs_frame(sample_t_ns)
         batch = self._prepare(obs_frame)
         batch = self.preprocessor(batch)
-        self.get_logger().info(f"===== Processed batch at {sample_t_ns} ns =====")
-        for key in batch:
-            if key.startswith("task"):
-                self.get_logger().info(f"Processed {key}: {batch[key]}")
-            elif isinstance(batch[key], torch.Tensor):
-                self.get_logger().info(f"Processed {key}: {batch[key].shape}, dtype={batch[key].dtype}")
-            else:
-                self.get_logger().info(f"Processed {key}: {batch[key]}")
+        start_time = perf_counter()
+        variant_msg = enc_variant_list(batch)
+        end_time = perf_counter()
+        self.get_logger().info(f"Encode time: {(end_time - start_time)*1000:.4f} ms")
+        self._variant_pub.publish(variant_msg)
     
     def _sample_obs_frame(self, sample_t_ns: int) -> Dict[str, Any]:
         obs_frame: Dict[str, Any] = {}
