@@ -17,6 +17,8 @@ Supported message types:
 
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
+import torch
+from torch import Tensor
 
 from rosetta.common.contract_utils import register_decoder
 
@@ -348,64 +350,66 @@ def _decode_multidof_via_names(msg, names: List[str]) -> np.ndarray:
 
 
 # ---------- Variant decoders ----------
-def _dec_variant(msg) -> np.ndarray:
-    """Decode a single Variant message into a numpy array.
+def _dec_variant(msg, device: Optional[torch.device] = None) -> Any:
+    """Decode a single Variant message into a numpy array or Python list.
     
     The type field indicates which array field contains the data:
-    - "bool_array" → bool array
-    - "int_32_array" → int32 array
-    - "int_64_array" → int64 array
-    - "float_32_array" → float32 array
-    - "float_64_array" → float64 array
+    - "bool_array" → bool Tensor
+    - "int_32_array" → int32 Tensor
+    - "int_64_array" → int64 Tensor
+    - "float_32_array" → float32 Tensor
+    - "float_64_array" → float64 Tensor
+    - "string_array" → list of strings
     
     Returns:
         np.ndarray: The decoded array with appropriate dtype
     """
     variant_type = str(msg.type).strip()
     
+    # Handle string array specially (returns list, not Tensor)
+    if variant_type == "string_array":
+        return list(msg.string_array)
+    
     type_map = {
-        "bool_array": (msg.bool_array, bool),
-        "int_32_array": (msg.int_32_array, np.int32),
-        "int_64_array": (msg.int_64_array, np.int64),
-        "float_32_array": (msg.float_32_array, np.float32),
-        "float_64_array": (msg.float_64_array, np.float64),
+        "bool_array": (msg.bool_array, torch.bool),
+        "int_32_array": (msg.int_32_array, torch.int32),
+        "int_64_array": (msg.int_64_array, torch.int64),
+        "float_32_array": (msg.float_32_array, torch.float32),
+        "float_64_array": (msg.float_64_array, torch.float64),
     }
     
     if variant_type not in type_map:
         raise ValueError(f"Unsupported variant type: {variant_type}")
     
-    array_msg, dtype = type_map[variant_type]
+    array_msg, torch_dtype = type_map[variant_type]
     
-    # Handle bool array specially (stored as list, not MultiArray)
     if variant_type == "bool_array":
-        return np.asarray(array_msg, dtype=dtype)
+        # Special handling for bool arrays, add batch dimension
+        if device:
+            return torch.tensor(array_msg, dtype=torch_dtype).unsqueeze(0).to(device)
+        return torch.tensor(array_msg, dtype=torch_dtype).unsqueeze(0)
     
-    # For numeric types, use MultiArray decoding
-    data = np.asarray(array_msg.data, dtype=dtype)
+    res = torch.tensor(array_msg.data, dtype=torch_dtype)
+
+    if device:
+        res = res.to(device)
     
-    # Reshape according to layout if available
     if array_msg.layout.dim:
         shape = tuple(dim.size for dim in array_msg.layout.dim)
-        if shape and np.prod(shape) == data.size:
-            data = data.reshape(shape)
+        res = res.reshape(shape)
     
-    return data
+    return res
 
 
-def dec_variant_list(msg) -> Dict[str, np.ndarray]:
-    """Decode a VariantsList message into a dictionary of numpy arrays.
-    
-    Args:
-        msg: rosetta_interfaces/msg/VariantsList message
-        
-    Returns:
-        Dict[str, np.ndarray]: Dictionary mapping keys to decoded numpy arrays
+def dec_variant_list(msg, device: Optional[torch.device] = None) -> Dict[str, Any]:
+    """
+    Decode a VariantsList message into a dictionary of numpy arrays.
     """
     result = {}
     
     for variant_msg in msg.variants:
         key = str(variant_msg.key)
-        value = _dec_variant(variant_msg)
+        value = _dec_variant(variant_msg, device)
         result[key] = value
     
     return result

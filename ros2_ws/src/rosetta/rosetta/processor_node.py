@@ -164,13 +164,14 @@ class ProcessorNode(Node):
                 stamp_src=s.stamp_src,
             )
         
-        # TODO: hardcoded variant topic name
-        VARIANT_TOPIC = "/rosetta/batch"
+        # Get variant topic from contract
+        variant_topic = self._contract.process.get("variant_topic_name", "/rosetta/batch")
         self._variant_pub = self.create_publisher(
             get_message("rosetta_interfaces/msg/VariantsList"),
-            VARIANT_TOPIC,
+            variant_topic,
             10,
         )
+        self.get_logger().info(f"Publishing variants to: {variant_topic}")
         
         # ---------------- Timer ----------------
         self._cbg_timers = ReentrantCallbackGroup()
@@ -214,7 +215,7 @@ class ProcessorNode(Node):
         start_time = perf_counter()
         variant_msg = enc_variant_list(batch)
         end_time = perf_counter()
-        self.get_logger().info(f"Encode time: {(end_time - start_time)*1000:.4f} ms")
+        # self.get_logger().info(f"Encode time: {(end_time - start_time)*1000:.4f} ms")
         self._variant_pub.publish(variant_msg)
     
     def _sample_obs_frame(self, sample_t_ns: int) -> Dict[str, Any]:
@@ -317,7 +318,7 @@ class ProcessorNode(Node):
         # Optional: log clock skew for debugging
         if most_recent_ts is not None:
             skew_ms = (self.get_clock().now().nanoseconds - most_recent_ts) / 1e6
-            self.get_logger().info(f"obs-header skew: {skew_ms:.1f} ms")
+            # self.get_logger().info(f"obs-header skew: {skew_ms:.1f} ms")
                     
         return most_recent_ts
 

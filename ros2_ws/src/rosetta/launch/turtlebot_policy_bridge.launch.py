@@ -7,7 +7,7 @@ import os
 
 def generate_launch_description():
     share = get_package_share_directory('rosetta')
-    contract = os.path.join(share, 'contracts', 'act_grab_pan.yaml')
+    contract = os.path.join(share, 'contracts', 'pi05_multi_tasks.yaml')
     log_level_arg = DeclareLaunchArgument(
             'log_level',
             default_value='info',  # Default log level
@@ -25,9 +25,22 @@ def generate_launch_description():
             parameters=[
                 {'contract_path': contract},
                 {'policy_device': 'cuda'},
+                # {'policy_path': '/home/ch3cooh/Workspace/TrainedModels/act/230000/pretrained_model'},
+                {'policy_path': '/home/ch3cooh/Workspace/TrainedModels/pi0.5/pretrained_model'},
+            ],
+            arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
+        ),
+        Node(
+            package='rosetta',
+            executable='variant_policy_bridge_node',
+            name='variant_policy_bridge',
+            output='screen',
+            emulate_tty=True,
+            parameters=[
+                {'contract_path': contract},
+                {'policy_device': 'cuda'},
                 {'policy_path': '/home/ch3cooh/Workspace/TrainedModels/act/230000/pretrained_model'},
-                {'use_sim_time': False},
-                {'use_chunks': False}
+                # {'policy_path': '/home/ch3cooh/Workspace/TrainedModels/pi0.5/pretrained_model'},
             ],
             arguments=['--ros-args', '--log-level', LaunchConfiguration('log_level')],
         ),

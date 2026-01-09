@@ -40,13 +40,6 @@ from rosetta.common.contract_utils import (
 from rosetta.common.decoders import dec_variant_list
 
 
-@dataclass(slots=True)
-class _VariantBuffer:
-    """Buffer for variants using StreamBuffer."""
-    spec: SpecView
-    buf: StreamBuffer
-
-
 def _device_from_param(requested: Optional[str] = None) -> torch.device:
     """Parse device parameter and return torch device."""
     r = (requested or "auto").lower().strip()
@@ -99,7 +92,6 @@ class VariantPolicyBridge(Node):
 
         # Setup specs
         self._specs: List[SpecView] = list(iter_specs(self._contract))
-        self._obs_specs = [s for s in self._specs if not s.is_action]
         self._action_specs = [s for s in self._specs if s.is_action]
 
         # Setup device
@@ -123,44 +115,39 @@ class VariantPolicyBridge(Node):
 
         cfg_json = os.path.join(policy_path, "config.json")
         policy_cfg = {}
+        policy_type = ""
         try:
             if os.path.exists(cfg_json):
                 with open(cfg_json, "r", encoding="utf-8") as f:
                     policy_cfg = json.load(f)
+                    policy_type = str(policy_cfg.get("type", "")).lower()
         except (OSError, json.JSONDecodeError) as e:
             self.get_logger().warning(f"Could not read policy config.json: {e!r}")
 
         # Initialize policy
-        policy_class = get_policy_class(policy_cfg.get("policy_type", "diffusion"))
-        self.policy = policy_class.from_pretrained(policy_path, device=self.device)
+        if not policy_type:
+            raise ValueError("Could not determine policy type from config.json")
+        
+        policy_class = get_policy_class(policy_type)
+        self.policy = policy_class.from_pretrained(policy_path)
         self.get_logger().info(f"Loaded policy: {policy_class.__name__}")
 
         # Setup pre/post processors
-        self.preprocessor, self.postprocessor = make_pre_post_processors(
+        _, self.postprocessor = make_pre_post_processors(
             policy_cfg=policy_cfg,
             pretrained_path=policy_path,
             preprocessor_overrides={"device_processor": {"device": str(self.device)}},
             postprocessor_overrides={"device_processor": {"device": str(self.device)}},
         )
 
-        # Setup variant buffers with StreamBuffer
-        self._variant_buffers: Dict[str, _VariantBuffer] = {}
-        for spec in self._obs_specs:
-            tol_ns = int(max(0, spec.asof_tol_ms)) * 1_000_000
-            self._variant_buffers[spec.key] = _VariantBuffer(
-                spec=spec,
-                buf=StreamBuffer(
-                    policy=spec.resample_policy,
-                    step_ns=self.step_ns,
-                    tol_ns=tol_ns,
-                ),
-            )
+        # TODO: convert to streambuffer
+        self._variant_buffer = {}
 
         # Setup publishers for actions
         self._act_pubs: Dict[str, Any] = {}
         for spec in self._action_specs:
             msg_cls = get_message(spec.ros_type)
-            pub = self.create_publisher(msg_cls, spec.topic, qos_profile=QoSProfile())
+            pub = self.create_publisher(msg_cls, spec.topic, 10)
             self._act_pubs[spec.topic] = pub
             self.get_logger().info(f"Created action publisher: {spec.topic}")
 
@@ -171,7 +158,7 @@ class VariantPolicyBridge(Node):
             variant_msg_cls,
             variant_topic,
             self._variant_cb,
-            qos_profile=QoSProfile(),
+            10,
             callback_group=self._cbg,
         )
         self.get_logger().info(f"Subscribed to: {variant_topic}")
@@ -184,41 +171,30 @@ class VariantPolicyBridge(Node):
     def _variant_cb(self, msg) -> None:
         """Callback for VariantsList messages."""
         try:
-            # Decode VariantsList into dictionary of arrays
-            batch = dec_variant_list(msg)
-            
-            # Push each variant into its buffer
-            ts_ns = self.get_clock().now().nanoseconds
-            for key, value in batch.items():
-                if key in self._variant_buffers:
-                    self._variant_buffers[key].buf.push(ts_ns, value)
-                else:
-                    self.get_logger().debug(f"Received unknown variant key: {key}")
+            batch = dec_variant_list(msg, self.device)
+            self._variant_buffer = batch
         except Exception as e:
             self.get_logger().error(f"Failed to decode VariantsList: {e!r}")
 
     def _inference_tick(self) -> None:
         """Main inference loop."""
-        # Sample observations from buffers
-        sample_t_ns = self.get_clock().now().nanoseconds
-        batch = {}
-        
-        for key, var_buf in self._variant_buffers.items():
-            sampled = var_buf.buf.sample(sample_t_ns)
-            if sampled is not None:
-                batch[key] = sampled
-            else:
-                self.get_logger().warning(f"No data available for {key}")
-                return
-        
-        # Run policy inference
+        batch = self._variant_buffer
+        if not batch:
+            self.get_logger().warning("No variants in buffer, skipping inference")
+            return
+
+        # self.get_logger().info("Sampled batch for inference:")
+        # for k in batch:
+        #     if isinstance(batch[k], torch.Tensor):
+        #         self.get_logger().info(f"Sampled {k}: shape {batch[k].shape}, dtype {batch[k].dtype}")
+        #     else:
+        #         self.get_logger().info(f"Sampled {k}: {batch[k]}")
+
         with torch.inference_mode():
             action = self.policy.select_action(batch)
         
-        # Run postprocessor
         action = self.postprocessor(action)
         
-        # Publish actions
         self._publish_actions(action)
 
     def _publish_actions(self, action: Any) -> None:
