@@ -104,6 +104,7 @@ class Contract:
     recording: Dict[str, Any]
     robot_type: Optional[str] = None
     timestamp_source: str = "receive"
+    process: Dict[str, Any] = None
 
 
 def _as_align(d: Optional[Dict[str, Any]]) -> Optional[AlignSpec]:
@@ -160,6 +161,7 @@ def load_contract(path: Path | str) -> Contract:
     acts = [_act(it) for it in (d.get("actions") or [])]
     tks = [_task(it) for it in (d.get("tasks") or [])]
     rec = d.get("recording") or {}
+    proc = d.get("process") or {}
 
     return Contract(
         name=d.get("name", "contract"),
@@ -172,6 +174,7 @@ def load_contract(path: Path | str) -> Contract:
         recording=rec,
         robot_type=d.get("robot_type"),
         timestamp_source=str(d.get("timestamp_source", "receive")).lower(),
+        process=proc,
     )
 
 

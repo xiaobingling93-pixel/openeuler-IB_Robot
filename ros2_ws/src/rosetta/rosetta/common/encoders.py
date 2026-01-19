@@ -19,7 +19,8 @@ import numpy as np
 from rosidl_runtime_py.utilities import get_message
 
 from rosetta.common.contract_utils import register_encoder
-
+from torch import Tensor
+import torch
 
 # ---------- Helper functions ----------
 
@@ -253,5 +254,82 @@ def _enc_joint_state(
 
     for index, path in enumerate(names):
         dot_set(msg, path, arr[index])
+
+    return msg
+
+# ---------- Variant encoder ----------
+def _create_multiarray_msg(vec: np.ndarray, msg_type: str):
+    msg_cls_name = f"std_msgs/msg/{msg_type}MultiArray"
+    msg = get_message(msg_cls_name)()
+    
+    msg.data = vec.reshape(-1).tolist()
+    
+    for size in vec.shape:
+        dim = get_message("std_msgs/msg/MultiArrayDimension")()
+        dim.size = size
+        msg.layout.dim.append(dim)
+    
+    return msg
+
+def _enc_tensor_to_variant(vec: Tensor):
+    """
+    Encode Tensor into Variant message.
+    """
+    msg_cls = get_message("rosetta_interfaces/msg/Variant")
+    variant_msg = msg_cls()
+
+    if vec.dtype == torch.bool:
+        variant_msg.type = "bool_array"
+        variant_msg.bool_array = vec.reshape(-1).tolist()
+    elif vec.dtype == torch.int32:
+        variant_msg.type = "int_32_array"
+        variant_msg.int_32_array = _create_multiarray_msg(vec, "Int32")
+    elif vec.dtype == torch.int64:
+        variant_msg.type = "int_64_array"
+        variant_msg.int_64_array = _create_multiarray_msg(vec, "Int64")
+    elif vec.dtype == torch.float32:
+        variant_msg.type = "float_32_array"
+        variant_msg.float_32_array = _create_multiarray_msg(vec, "Float32")
+    elif vec.dtype == torch.float64:
+        variant_msg.type = "float_64_array"
+        variant_msg.float_64_array = _create_multiarray_msg(vec, "Float64")
+    else:
+        raise ValueError(f"Unsupported data type for variant encoding: {vec.dtype}")
+
+    return variant_msg
+
+def _enc_list_to_variant(vec: list):
+    """
+    Encode list into Variant message.
+    Currently only supports list of strings.
+    """
+    if all(isinstance(item, str) for item in vec):
+        msg_cls = get_message("rosetta_interfaces/msg/Variant")
+        variant_msg = msg_cls()
+        variant_msg.type = "string_array"
+        variant_msg.string_array = vec
+        return variant_msg
+    else:
+        raise ValueError("Unsupported list type for variant encoding. Only list of strings is supported.")
+
+def enc_variant_list(batch: Dict[str, Any]):
+    """Encode a batch into a VariantsList message."""
+
+    msg_cls = get_message("rosetta_interfaces/msg/VariantsList")
+    msg = msg_cls()
+    msg.variants = []
+    
+    for key, value in batch.items():
+        ## TODO: hardcoded filter, may be configurable in contract
+        if not key.startswith('task') and not key.startswith('observation') and not key.startswith('action'):
+            continue
+        if isinstance(value, Tensor):
+            variant_msg = _enc_tensor_to_variant(value)
+        elif isinstance(value, list):
+            variant_msg = _enc_list_to_variant(value)
+        else:
+            continue
+        variant_msg.key = key
+        msg.variants.append(variant_msg)
 
     return msg
