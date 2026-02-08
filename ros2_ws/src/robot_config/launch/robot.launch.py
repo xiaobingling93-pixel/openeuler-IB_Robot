@@ -63,6 +63,119 @@ def load_robot_config(robot_config_name, config_path_override=None):
     return robot_config
 
 
+def generate_camera_nodes(robot_config, use_sim):
+    """Generate camera nodes from configuration.
+
+    Args:
+        robot_config: Robot configuration dict
+        use_sim: Simulation mode flag
+
+    Returns:
+        List of Node actions for cameras
+    """
+    nodes = []
+
+    # Skip cameras in simulation mode
+    if use_sim == 'true':
+        print("[robot_config] Simulation mode: skipping camera nodes")
+        return nodes
+
+    peripherals = robot_config.get("peripherals", [])
+    print(f"[robot_config] Generating nodes for {len(peripherals)} peripherals")
+
+    for periph in peripherals:
+        if periph.get("type") != "camera":
+            continue
+
+        name = periph["name"]
+        driver = periph.get("driver", "opencv")
+        print(f"[robot_config] Creating camera node: {name} (driver={driver})")
+
+        if driver == "opencv":
+            # Use usb_cam package
+            index = periph.get("index", 0)
+            video_device = f"/dev/video{index}" if isinstance(index, int) else index
+
+            params = {
+                "camera_name": name,
+                "framerate": float(periph.get("fps", 30)),
+                "image_width": periph.get("width", 640),
+                "image_height": periph.get("height", 480),
+                "pixel_format": periph.get("pixel_format", "mjpeg"),
+                "camera_frame_id": periph.get("frame_id", f"camera_{name}_frame"),
+                "video_device": video_device,
+            }
+
+            # Add camera_info_url if specified
+            if "camera_info_url" in periph:
+                params["camera_info_url"] = periph["camera_info_url"]
+
+            # Add optional parameters
+            if "brightness" in periph:
+                params["brightness"] = periph["brightness"]
+            if "contrast" in periph:
+                params["contrast"] = periph["contrast"]
+            if "saturation" in periph:
+                params["saturation"] = periph["saturation"]
+            if "sharpness" in periph:
+                params["sharpness"] = periph["sharpness"]
+
+            print(f"[robot_config]   Camera params: {params}")
+
+            nodes.append(Node(
+                package="usb_cam",
+                executable="usb_cam_node_exe",
+                name=f"{name}_camera",
+                parameters=[params],
+                remappings=[
+                    ("image_raw", f"/camera/{name}/image_raw"),
+                    ("camera_info", f"/camera/{name}/camera_info"),
+                ],
+                output="screen",
+            ))
+
+        elif driver == "realsense":
+            # Use realsense2_camera package
+            params = {
+                "camera_name": name,
+                "camera_fps": periph.get("fps", 30),
+                "color_width": periph.get("width", 640),
+                "color_height": periph.get("height", 480),
+                "color_format": periph.get("pixel_format", "bgr8").upper(),
+                "camera_frame_id": periph.get("frame_id", f"camera_{name}_frame"),
+                "enable_pointcloud": periph.get("enable_pointcloud", False),
+                "enable_sync": periph.get("enable_sync", True),
+                "align_depth": periph.get("align_depth", False),
+            }
+
+            # Add depth parameters if specified
+            if "depth_width" in periph:
+                params["depth_width"] = periph["depth_width"]
+                params["depth_height"] = periph["depth_height"]
+            if "depth_fps" in periph:
+                params["depth_fps"] = periph["depth_fps"]
+
+            # Add serial number if specified
+            if "serial_number" in periph:
+                params["serial_no"] = str(periph["serial_number"])
+
+            print(f"[robot_config]   RealSense params: {params}")
+
+            nodes.append(Node(
+                package="realsense2_camera",
+                executable="realsense2_camera_node",
+                name=f"{name}_camera",
+                parameters=[params],
+                remappings=[
+                    (f"/camera/{name}/color/image_raw", f"/camera/{name}/image_raw"),
+                    (f"/camera/{name}/color/camera_info", f"/camera/{name}/camera_info"),
+                ],
+                output="screen",
+            ))
+
+    return nodes
+
+
 def generate_ros2_control_nodes(robot_config, use_sim):
     """Generate ros2_control nodes from configuration.
 
@@ -257,8 +370,15 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR generating ros2_control nodes: {e}")
         raise
 
+    # ========== Camera Nodes (dynamically generated from config) ==========
+    try:
+        camera_nodes = generate_camera_nodes(robot_config, use_sim)
+        actions.extend(camera_nodes)
+    except Exception as e:
+        print(f"[robot_config] ERROR generating camera nodes: {e}")
+        raise
+
     # TODO: Add more node generation functions in subsequent commits
-    # - generate_camera_nodes()
     # - generate_tf_nodes()
     # - generate_gazebo_nodes()
 
