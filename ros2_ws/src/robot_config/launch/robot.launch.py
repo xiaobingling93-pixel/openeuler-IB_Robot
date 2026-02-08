@@ -176,6 +176,62 @@ def generate_camera_nodes(robot_config, use_sim):
     return nodes
 
 
+def generate_tf_nodes(robot_config):
+    """Generate static transform publishers for camera frames.
+
+    Args:
+        robot_config: Robot configuration dict
+
+    Returns:
+        List of Node actions for TF publishers
+    """
+    nodes = []
+    peripherals = robot_config.get("peripherals", [])
+
+    for periph in peripherals:
+        if periph.get("type") != "camera":
+            continue
+
+        name = periph["name"]
+        frame_id = periph.get("frame_id", f"camera_{name}_frame")
+        optical_frame_id = periph.get("optical_frame_id")
+        transform = periph.get("transform")
+
+        print(f"[robot_config] Creating TF for camera: {name}")
+
+        # Parent frame transform (if specified in config)
+        if transform:
+            parent_frame = transform.get("parent_frame", "base_link")
+            x = transform.get("x", 0.0)
+            y = transform.get("y", 0.0)
+            z = transform.get("z", 0.0)
+            roll = transform.get("roll", 0.0)
+            pitch = transform.get("pitch", 0.0)
+            yaw = transform.get("yaw", 0.0)
+
+            print(f"[robot_config]   TF: {parent_frame} -> {frame_id} pos=({x},{y},{z})")
+
+            nodes.append(Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                arguments=[str(x), str(y), str(z), str(roll), str(pitch), str(yaw), parent_frame, frame_id],
+                output="screen",
+            ))
+
+        # Optical frame transform (standard ROS2 convention)
+        if optical_frame_id:
+            print(f"[robot_config]   Optical TF: {frame_id} -> {optical_frame_id}")
+            # Standard optical frame rotation: -90° around X, -90° around Y
+            nodes.append(Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                arguments=["0", "0", "0", "-1.5708", "0", "-1.5708", frame_id, optical_frame_id],
+                output="screen",
+            ))
+
+    return nodes
+
+
 def generate_ros2_control_nodes(robot_config, use_sim):
     """Generate ros2_control nodes from configuration.
 
@@ -378,8 +434,15 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR generating camera nodes: {e}")
         raise
 
+    # ========== TF Nodes (dynamically generated from config) ==========
+    try:
+        tf_nodes = generate_tf_nodes(robot_config)
+        actions.extend(tf_nodes)
+    except Exception as e:
+        print(f"[robot_config] ERROR generating TF nodes: {e}")
+        raise
+
     # TODO: Add more node generation functions in subsequent commits
-    # - generate_tf_nodes()
     # - generate_gazebo_nodes()
 
     print(f"[robot_config] Total nodes to launch: {len(actions)}")
