@@ -91,7 +91,7 @@ def load_ros2_control_config(data: Dict[str, Any], config_dir: Optional[Path] = 
     Example:
     ```yaml
     ros2_control:
-      hardware_plugin: so101_hardware_cpp/SO101SystemHardware
+      hardware_plugin: so101_hardware/SO101SystemHardware
       port: /dev/ttyACM0
       calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
       reset_positions: {1: 0.0, 2: 0.0}

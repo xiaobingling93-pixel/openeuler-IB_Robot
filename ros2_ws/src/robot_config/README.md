@@ -28,7 +28,7 @@ The goal is to have a single source of truth for robot hardware configuration, e
 robot_config YAML (single source of truth)
         │
         ├───► ros2_control (joints/motors)
-        │       └───► so101_hardware_cpp plugin
+        │       └───► so101_hardware plugin
         │
         ├───► Camera drivers (existing ROS2 packages)
         │       ├───► usb_cam (USB cameras)
@@ -47,7 +47,7 @@ robot:
   robot_type: so_101
 
   ros2_control:
-    hardware_plugin: so101_hardware_cpp/SO101SystemHardware
+    hardware_plugin: so101_hardware/SO101SystemHardware
     port: /dev/ttyACM0
     calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
     reset_positions:

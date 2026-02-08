@@ -9,7 +9,7 @@ robot:
 
   # ros2_control configuration
   ros2_control:
-    hardware_plugin: so101_hardware_cpp/SO101SystemHardware
+    hardware_plugin: so101_hardware/SO101SystemHardware
     port: /dev/ttyACM0
     calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
     # Reset positions (optional) - safe folded position for dog-mounted arm

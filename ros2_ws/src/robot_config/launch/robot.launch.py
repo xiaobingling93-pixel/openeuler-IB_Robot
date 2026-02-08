@@ -12,7 +12,6 @@ Usage:
 """
 
 import os
-import re
 import yaml
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
@@ -20,7 +19,11 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
+    LogInfo,
+    IncludeLaunchDescription,
 )
+from launch.conditions import LaunchConfigurationEquals
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, FindExecutable
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -176,60 +179,136 @@ def generate_camera_nodes(robot_config, use_sim):
     return nodes
 
 
-def generate_tf_nodes(robot_config):
-    """Generate static transform publishers for camera frames.
+def generate_gazebo_nodes(robot_config, urdf_path):
+    """Generate Gazebo simulation nodes.
 
     Args:
         robot_config: Robot configuration dict
+        urdf_path: Resolved URDF path
 
     Returns:
-        List of Node actions for TF publishers
+        List of launch actions for Gazebo
     """
-    nodes = []
+    from launch.actions import SetEnvironmentVariable
+    import os
+
+    actions = []
+    ros2_control_config = robot_config.get("ros2_control")
+
+    # Set Gazebo resource path
+    try:
+        lerobot_desc_share = get_package_share_directory("lerobot_description")
+        import os
+        gazebo_resource_path = SetEnvironmentVariable(
+            name="GZ_SIM_RESOURCE_PATH",
+            value=str(Path(lerobot_desc_share).parent.resolve())
+        )
+        actions.append(gazebo_resource_path)
+    except:
+        print("[robot_config] WARNING: Could not find lerobot_description package")
+
+    # Get world file path (use custom world with Sensors plugin)
+    try:
+        robot_config_share = get_package_share_directory("robot_config")
+        world_path = os.path.join(robot_config_share, "config", "worlds", "simulation.world")
+        if not Path(world_path).exists():
+            print(f"[robot_config] WARNING: World file not found at {world_path}, using empty.sdf")
+            world_path = "empty.sdf"
+        else:
+            print(f"[robot_config] Using world file: {world_path}")
+    except:
+        world_path = "empty.sdf"
+
+    # Include Gazebo launch file
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(
+                get_package_share_directory("ros_gz_sim"),
+                "launch"
+            ),
+            "/gz_sim.launch.py"
+        ]),
+        launch_arguments=[
+            ("gz_args", [f"-v 4 -r {world_path}"])
+        ]
+    )
+    actions.append(gazebo_launch)
+
+    # Spawn entity in Gazebo
+    gz_spawn_entity = Node(
+        package="ros_gz_sim",
+        executable="create",
+        output="screen",
+        arguments=["-topic", "robot_description", "-name", "so101"],
+    )
+    actions.append(gz_spawn_entity)
+
+    # Clock bridge
+    gz_ros2_clock_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
+        ]
+    )
+    actions.append(gz_ros2_clock_bridge)
+
+    # Get world name from the world file (default to "demo" for simulation.world)
+    world_name = "demo"  # simulation.world uses "demo" as world name
+
+    # Joint state bridge for ros2_control
+    gz_ros2_joint_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            f"/world/{world_name}/model/so101/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model",
+        ]
+    )
+    actions.append(gz_ros2_joint_bridge)
+
+    # Camera bridges (dynamically generated from config)
     peripherals = robot_config.get("peripherals", [])
+    cameras = [p for p in peripherals if p.get("type") == "camera"]
 
-    for periph in peripherals:
-        if periph.get("type") != "camera":
-            continue
+    if cameras:
+        print(f"[robot_config] Gazebo: Creating {len(cameras)} camera bridge(s) from config")
 
-        name = periph["name"]
-        frame_id = periph.get("frame_id", f"camera_{name}_frame")
-        optical_frame_id = periph.get("optical_frame_id")
-        transform = periph.get("transform")
+        # Mapping from camera name to Gazebo sensor name
+        # Can be extended or made configurable
+        gazebo_sensor_map = {
+            "wrist": "wrist_camera",
+            "top": "top_camera",
+            "test": "top_camera",  # Default: map 'test' to top_camera
+        }
 
-        print(f"[robot_config] Creating TF for camera: {name}")
+        for periph in cameras:
+            name = periph["name"]
+            gazebo_sensor_name = periph.get("gazebo_sensor", gazebo_sensor_map.get(name, f"{name}_camera"))
+            topic_prefix = periph.get("topic_prefix", f"/camera/{name}")
 
-        # Parent frame transform (if specified in config)
-        if transform:
-            parent_frame = transform.get("parent_frame", "base_link")
-            x = transform.get("x", 0.0)
-            y = transform.get("y", 0.0)
-            z = transform.get("z", 0.0)
-            roll = transform.get("roll", 0.0)
-            pitch = transform.get("pitch", 0.0)
-            yaw = transform.get("yaw", 0.0)
+            print(f"[robot_config]   Camera bridge: {name} -> Gazebo sensor: {gazebo_sensor_name}")
 
-            print(f"[robot_config]   TF: {parent_frame} -> {frame_id} pos=({x},{y},{z})")
+            # Gazebo camera topic format: /world/{world_name}/model/{model_name}/link/{link_name}/sensor/{sensor_name}/{topic}
+            # Note: The camera sensors use topic names like "wrist_camera/image" and "top_camera/image"
+            gz_image_topic = f"/world/{world_name}/model/so101/link/{gazebo_sensor_name}_link/sensor/{gazebo_sensor_name}/{gazebo_sensor_name}/image"
+            gz_info_topic = f"/world/{world_name}/model/so101/link/{gazebo_sensor_name}_link/sensor/{gazebo_sensor_name}/{gazebo_sensor_name}/camera_info"
 
-            nodes.append(Node(
-                package="tf2_ros",
-                executable="static_transform_publisher",
-                arguments=[str(x), str(y), str(z), str(roll), str(pitch), str(yaw), parent_frame, frame_id],
-                output="screen",
-            ))
+            camera_bridge = Node(
+                package="ros_gz_bridge",
+                executable="parameter_bridge",
+                arguments=[
+                    f"{gz_image_topic}@sensor_msgs/msg/Image[gz.msgs.Image",
+                    f"{gz_info_topic}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
+                ],
+                remappings=[
+                    (gz_image_topic, f"{topic_prefix}/image_raw"),
+                    (gz_info_topic, f"{topic_prefix}/camera_info"),
+                ],
+            )
+            actions.append(camera_bridge)
 
-        # Optical frame transform (standard ROS2 convention)
-        if optical_frame_id:
-            print(f"[robot_config]   Optical TF: {frame_id} -> {optical_frame_id}")
-            # Standard optical frame rotation: -90° around X, -90° around Y
-            nodes.append(Node(
-                package="tf2_ros",
-                executable="static_transform_publisher",
-                arguments=["0", "0", "0", "-1.5708", "0", "-1.5708", frame_id, optical_frame_id],
-                output="screen",
-            ))
-
-    return nodes
+    print(f"[robot_config] Created {len(actions)} Gazebo nodes")
+    return actions
 
 
 def generate_ros2_control_nodes(robot_config, use_sim):
@@ -260,6 +339,7 @@ def generate_ros2_control_nodes(robot_config, use_sim):
     # Resolve $(find package) and $(env VAR) substitutions
     if "$(find " in urdf_path:
         # Extract package name from $(find package_name)/path
+        import re
         match = re.search(r'\$\(find\s+(\w+)\)', urdf_path)
         if match:
             package_name = match.group(1)
@@ -272,6 +352,7 @@ def generate_ros2_control_nodes(robot_config, use_sim):
 
     if "$(env " in urdf_path:
         # Replace $(env VAR) with environment variable
+        import re
         match = re.search(r'\$\(env\s+(\w+)\)', urdf_path)
         if match:
             var_name = match.group(1)
@@ -292,6 +373,9 @@ def generate_ros2_control_nodes(robot_config, use_sim):
             enable_cameras = True
             break
 
+    # Get hardware parameters
+    port = ros2_control_config.get("port", "/dev/ttyACM0")
+
     # Generate robot_description using xacro
     xacro_args = [
         PathJoinSubstitution([FindExecutable(name="xacro")]),
@@ -300,6 +384,9 @@ def generate_ros2_control_nodes(robot_config, use_sim):
         " ",
         "use_sim:=",
         "true" if use_sim == 'true' else "false",
+        " ",
+        "port:=",
+        port,
     ]
 
     # Add use_cameras argument if cameras are configured
@@ -339,20 +426,24 @@ def generate_ros2_control_nodes(robot_config, use_sim):
             # Try to find default controllers config based on robot type
             if "so101" in hardware_plugin.lower():
                 try:
-                    so101_hw_share = get_package_share_directory("so101_hw_interface")
+                    so101_hw_share = get_package_share_directory("so101_hardware")
                     controllers_config = os.path.join(so101_hw_share, "config", "so101_controllers.yaml")
                 except:
-                    print("[robot_config] WARNING: Could not find so101_hw_interface package for controllers config")
+                    print("[robot_config] WARNING: Could not find so101_hardware package for controllers config")
 
         if controllers_config and Path(controllers_config).exists():
             print(f"[robot_config] Controllers config: {controllers_config}")
 
+            control_node_params = [controllers_config]
+            if use_sim == 'true':
+                control_node_params.append({"use_sim_time": True})
+
             nodes.append(Node(
                 package="controller_manager",
                 executable="ros2_control_node",
-                parameters=[
-                    robot_description,
-                    controllers_config,
+                parameters=control_node_params,
+                remappings=[
+                    ("~/robot_description", "/robot_description"),
                 ],
                 output="screen",
             ))
@@ -387,6 +478,70 @@ def generate_ros2_control_nodes(robot_config, use_sim):
         print("[robot_config] Simulation mode: Gazebo's gz_ros2_control will handle controllers")
 
     print(f"[robot_config] Created {len(nodes)} ros2_control nodes")
+    return nodes
+
+
+def generate_tf_nodes(robot_config):
+    """Generate static transform publishers for camera frames.
+
+    Args:
+        robot_config: Robot configuration dict
+
+    Returns:
+        List of Node actions for TF publishers
+    """
+    nodes = []
+    peripherals = robot_config.get("peripherals", [])
+
+    for periph in peripherals:
+        if periph.get("type") != "camera":
+            continue
+
+        name = periph["name"]
+        frame_id = periph.get("frame_id", f"camera_{name}_frame")
+        optical_frame_id = periph.get("optical_frame_id")
+        transform = periph.get("transform")
+
+        print(f"[robot_config] Creating TF for camera: {name}")
+
+        # Parent frame transform (if specified in config)
+        if transform:
+            parent_frame = transform.get("parent_frame", "base_link")
+            x = transform.get("x", 0.0)
+            y = transform.get("y", 0.0)
+            z = transform.get("z", 0.0)
+            roll = transform.get("roll", 0.0)
+            pitch = transform.get("pitch", 0.0)
+            yaw = transform.get("yaw", 0.0)
+
+            print(f"[robot_config]   TF: {parent_frame} -> {frame_id} pos=({x},{y},{z})")
+
+            nodes.append(Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                arguments=[
+                    '--x', str(x), '--y', str(y), '--z', str(z),
+                    '--roll', str(roll), '--pitch', str(pitch), '--yaw', str(yaw),
+                    '--frame-id', parent_frame, '--child-frame-id', frame_id
+                ],
+                output="screen",
+            ))
+
+        # Optical frame transform (standard ROS2 convention)
+        if optical_frame_id:
+            print(f"[robot_config]   Optical TF: {frame_id} -> {optical_frame_id}")
+            # Standard optical frame rotation: -90° around X, -90° around Y
+            nodes.append(Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                arguments=[
+                    '--x', '0', '--y', '0', '--z', '0',
+                    '--roll', '-1.5708', '--pitch', '0', '--yaw', '-1.5708',
+                    '--frame-id', frame_id, '--child-frame-id', optical_frame_id
+                ],
+                output="screen",
+            ))
+
     return nodes
 
 
@@ -426,6 +581,32 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR generating ros2_control nodes: {e}")
         raise
 
+    # ========== Gazebo Nodes (only in simulation mode) ==========
+    if use_sim == 'true':
+        try:
+            # Get URDF path for Gazebo
+            ros2_control_config = robot_config.get("ros2_control", {})
+            urdf_path = ros2_control_config.get("urdf_path", "")
+
+            # Resolve path substitutions
+            if urdf_path and "$(find " in urdf_path:
+                import re
+                match = re.search(r'\$\(find\s+(\w+)\)', urdf_path)
+                if match:
+                    package_name = match.group(1)
+                    try:
+                        pkg_share = get_package_share_directory(package_name)
+                        urdf_path = urdf_path.replace(f"$(find {package_name})", pkg_share)
+                    except:
+                        urdf_path = ""
+
+            if urdf_path:
+                gazebo_nodes = generate_gazebo_nodes(robot_config, urdf_path)
+                actions.extend(gazebo_nodes)
+        except Exception as e:
+            print(f"[robot_config] ERROR generating Gazebo nodes: {e}")
+            raise
+
     # ========== Camera Nodes (dynamically generated from config) ==========
     try:
         camera_nodes = generate_camera_nodes(robot_config, use_sim)
@@ -441,9 +622,6 @@ def launch_setup(context, *args, **kwargs):
     except Exception as e:
         print(f"[robot_config] ERROR generating TF nodes: {e}")
         raise
-
-    # TODO: Add more node generation functions in subsequent commits
-    # - generate_gazebo_nodes()
 
     print(f"[robot_config] Total nodes to launch: {len(actions)}")
 

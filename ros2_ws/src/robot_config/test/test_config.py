@@ -23,7 +23,7 @@ def test_load_single_arm_config():
 
     assert config.name == "so101_single_arm"
     assert config.robot_type == "so_101"
-    assert config.ros2_control.hardware_plugin == "so101_hardware_cpp/SO101SystemHardware"
+    assert config.ros2_control.hardware_plugin == "so101_hardware/SO101SystemHardware"
     assert len(config.peripherals) == 2
 
     # Check cameras
@@ -46,7 +46,7 @@ def test_validate_valid_config():
         type="so101",
         robot_type="so_101",
         ros2_control=Ros2ControlConfig(
-            hardware_plugin="so101_hardware_cpp/SO101SystemHardware",
+            hardware_plugin="so101_hardware/SO101SystemHardware",
             params={"port": "/dev/ttyACM0"},
         ),
         peripherals=[
@@ -77,7 +77,7 @@ def test_validate_duplicate_camera_names():
         type="so101",
         robot_type="so_101",
         ros2_control=Ros2ControlConfig(
-            hardware_plugin="so101_hardware_cpp/SO101SystemHardware",
+            hardware_plugin="so101_hardware/SO101SystemHardware",
             params={},
         ),
         peripherals=[
@@ -118,7 +118,7 @@ def test_validate_invalid_camera_dimensions():
         type="so101",
         robot_type="so_101",
         ros2_control=Ros2ControlConfig(
-            hardware_plugin="so101_hardware_cpp/SO101SystemHardware",
+            hardware_plugin="so101_hardware/SO101SystemHardware",
             params={},
         ),
         peripherals=[
@@ -150,7 +150,7 @@ def test_get_all_cameras():
         type="so101",
         robot_type="so_101",
         ros2_control=Ros2ControlConfig(
-            hardware_plugin="so101_hardware_cpp/SO101SystemHardware",
+            hardware_plugin="so101_hardware/SO101SystemHardware",
             params={},
         ),
         peripherals=[
