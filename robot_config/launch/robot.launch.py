@@ -5,22 +5,52 @@ This launch file loads robot configuration from YAML and dynamically generates:
 - Robot state publisher
 - Camera drivers (usb_cam, realsense2_camera)
 - Static TF publishers for camera frames
+- Inference service and action dispatcher (optional, auto-detected)
+- MoveIt motion planning (optional, auto-detected)
 
 Controllers are automatically spawned in both simulation and real hardware modes:
 - Simulation mode: Uses Gazebo's gz_ros2_control plugin for controller_manager
 - Hardware mode: Starts ros2_control_node for controller_manager
 
+**CRITICAL**: This workspace uses ROS_DOMAIN_ID=<ID> to avoid conflicts with other ROS 2 systems.
+Always set this before launching:
+```bash
+export ROS_DOMAIN_ID=<ID>
+```
+
 Usage:
-    ros2 launch robot_config robot.launch.py robot_config:=test_cam use_sim:=false
-    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=false
+    # Basic simulation
     ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=true
-    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=true auto_start_controllers:=false
+
+    # ACT inference mode (auto-detected)
+    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=true control_mode:=teleop_act
+
+    # MoveIt planning mode (auto-detected, with RViz)
+    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=moveit_planning use_sim:=true
+
+    # MoveIt mode without RViz (headless)
+    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=moveit_planning use_sim:=true moveit_display:=false
+
+    # Real hardware
+    ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=false
+
+    # Override auto-detection
+    ros2 launch robot_config robot.launch.py control_mode:=teleop_act with_inference:=true use_sim:=true
+
+**Cleanup**: If you encounter "Controller already loaded" errors, run:
+```bash
+./scripts/cleanup_ros.sh
+```
 
 Launch Arguments:
     robot_config: Robot configuration name (default: test_cam)
     config_path: Optional full path to robot config file
     use_sim: Use simulation mode (default: false)
     auto_start_controllers: Automatically spawn controllers (default: true, set to false for debugging)
+    control_mode: Override control mode from YAML (teleop_act or moveit_planning). If empty, uses default_control_mode from config file
+    with_inference: Enable inference pipeline. If empty, auto-detects from control mode config
+    with_moveit: Enable MoveIt motion planning. If empty, auto-detects from control mode name
+    moveit_display: Launch RViz for MoveIt visualization (default: true, only used if MoveIt is enabled)
 """
 
 import yaml
@@ -176,23 +206,54 @@ def launch_setup(context, *args, **kwargs):
     # ========== 7. Generate Execution Nodes ==========
     print(f"[robot_config] ========== Generating Execution Nodes ==========")
     try:
-        # Get with_inference flag
-        with_inference = parse_bool(context.launch_configurations.get('with_inference', 'false'), default=False)
-        
-        if with_inference:
-            # Get the active control mode
-            active_control_mode = robot_config.get('default_control_mode', 'teleop_act')
+        # Get the active control mode
+        active_control_mode = robot_config.get('default_control_mode', 'teleop_act')
 
-            # Generate execution nodes (inference + dispatcher)
-            # This automatically determines whether to launch inference based on config
+        # Determine with_inference flag
+        # Priority: explicit parameter > control mode config > default (false)
+        with_inference_str = context.launch_configurations.get('with_inference', '')
+        
+        if with_inference_str != '':
+            with_inference = parse_bool(with_inference_str, default=False)
+        else:
+            control_mode_config = robot_config.get('control_modes', {}).get(active_control_mode, {})
+            with_inference = control_mode_config.get('inference', {}).get('enabled', False)
+        
+        print(f"[robot_config] with_inference={with_inference}")
+
+        if with_inference:
             execution_nodes = generate_execution_nodes(robot_config, active_control_mode, use_sim)
             actions.extend(execution_nodes)
             print(f"[robot_config] Added {len(execution_nodes)} execution nodes")
         else:
-            print(f"[robot_config] Skipping execution nodes (with_inference=false)")
+            print(f"[robot_config] Skipping execution nodes")
     except Exception as e:
         print(f"[robot_config] ERROR generating execution nodes: {e}")
         raise
+
+    # ========== 8. Generate MoveIt Nodes ==========
+    try:
+        # Determine with_moveit flag
+        with_moveit_str = context.launch_configurations.get('with_moveit', '')
+        moveit_display = parse_bool(context.launch_configurations.get('moveit_display', 'true'), default=True)
+
+        if with_moveit_str != '':
+            with_moveit = parse_bool(with_moveit_str, default=False)
+        else:
+            # Auto-detect: true if mode is 'moveit_planning' or contains 'moveit'
+            with_moveit = 'moveit' in active_control_mode.lower()
+        
+        print(f"[robot_config] with_moveit={with_moveit}")
+
+        if with_moveit:
+            from robot_config.launch_builders.moveit import generate_moveit_nodes
+            moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display)
+            actions.extend(moveit_nodes)
+        else:
+            print(f"[robot_config] Skipping MoveIt nodes")
+    except Exception as e:
+        print(f"[robot_config] ERROR generating MoveIt nodes: {e}")
+        print(f"[robot_config] Continuing without MoveIt...")
 
     print(f"[robot_config] ========== Total nodes to launch: {len(actions)} ==========")
 
@@ -204,7 +265,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "robot_config",
-            default_value="test_cam",
+            default_value="so101_single_arm",
             description="Robot configuration name (without .yaml extension)",
         ),
         DeclareLaunchArgument(
@@ -229,8 +290,18 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "with_inference",
-            default_value="false",
-            description="Enable full execution pipeline (inference + dispatcher)",
+            default_value="",
+            description="Enable full execution pipeline (inference + dispatcher). If empty, auto-detects from control mode config",
+        ),
+        DeclareLaunchArgument(
+            "with_moveit",
+            default_value="",
+            description="Enable MoveIt motion planning. If empty, auto-detects from control mode config",
+        ),
+        DeclareLaunchArgument(
+            "moveit_display",
+            default_value="true",
+            description="Launch RViz for MoveIt visualization (only used if MoveIt is enabled)",
         ),
         OpaqueFunction(function=launch_setup),
     ])

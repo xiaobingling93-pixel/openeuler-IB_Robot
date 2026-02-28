@@ -7,11 +7,7 @@ This module handles:
 """
 
 import os
-import sys
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import PathJoinSubstitution
-from pathlib import Path
 
 from robot_config.utils import parse_bool
 from robot_config.contract_builder import synthesize_contract, get_contract_output_path, save_contract
@@ -82,63 +78,21 @@ def generate_inference_node(robot_config, control_mode, use_sim=False):
     print(f"[robot_config]   Policy type: {model_config.get('policy_type', 'unknown')}")
     print(f"[robot_config]   Contract: {contract_path}")
 
-    # Step 4: Prepare environment for inference node (CRITICAL for venv and library loading)
+    # Step 4: Prepare environment for inference node
     env = os.environ.copy()
-    
-    # 1. Inject PYTHONPATH to find robot_config, lerobot and other packages
+
+    # Even if venv is active, the src-layout of lerobot requires this specific path in PYTHONPATH.
     workspace_path = os.environ.get('WORKSPACE', os.getcwd())
-    # FIX: lerobot package is inside 'src' directory of the library
     lerobot_src = os.path.join(workspace_path, 'libs/lerobot/src')
     
-    # Debug information for environment
-    print(f"[robot_config] ========== Environment Diagnostics ==========")
-    print(f"[robot_config] Workspace: {workspace_path}")
-    print(f"[robot_config] Lerobot SRC: {lerobot_src} (Exists: {os.path.exists(lerobot_src)})")
-    
-    # Get AMENT_PREFIX_PATH to find other built packages
-    ament_prefix = os.environ.get('AMENT_PREFIX_PATH', '')
-    site_packages_paths = []
-    if ament_prefix:
-        for path in ament_prefix.split(':'):
-            if 'install' in path:
-                sp = os.path.join(path, 'lib', 'python3.10', 'site-packages')
-                if os.path.exists(sp): site_packages_paths.append(sp)
-    
-    # Construct new PYTHONPATH
-    new_python_paths = []
-    if os.path.exists(lerobot_src): 
-        new_python_paths.append(lerobot_src)
-    
-    # Also include the venv site-packages if we are in one
-    venv_path = os.environ.get('VIRTUAL_ENV')
-    if venv_path:
-        venv_site_packages = os.path.join(venv_path, 'lib', f'python{sys.version_info.major}.{sys.version_info.minor}', 'site-packages')
-        if os.path.exists(venv_site_packages):
-            new_python_paths.append(venv_site_packages)
-            print(f"[robot_config] Venv site-packages added: {venv_site_packages}")
+    if os.path.exists(lerobot_src):
+        current_pp = env.get('PYTHONPATH', '')
+        env['PYTHONPATH'] = f"{lerobot_src}:{current_pp}" if current_pp else lerobot_src
+        print(f"[robot_config] Injected PYTHONPATH: {lerobot_src}")
 
-    new_python_paths.extend(site_packages_paths)
-    
-    if 'PYTHONPATH' in env:
-        env['PYTHONPATH'] = f"{':'.join(new_python_paths)}:{env['PYTHONPATH']}"
-    else:
-        env['PYTHONPATH'] = ':'.join(new_python_paths)
-
-    # 2. Inject LD_LIBRARY_PATH to find librcl_action.so and other C libraries
-    ros_lib_path = "/opt/ros/humble/lib"
-    if 'LD_LIBRARY_PATH' in env:
-        if ros_lib_path not in env['LD_LIBRARY_PATH']:
-            env['LD_LIBRARY_PATH'] = f"{ros_lib_path}:{env['LD_LIBRARY_PATH']}"
-    else:
-        env['LD_LIBRARY_PATH'] = ros_lib_path
-
-    print(f"[robot_config] Final PYTHONPATH: {env.get('PYTHONPATH', 'NOT_SET')[:200]}...")
-    print(f"[robot_config] Final LD_LIBRARY_PATH: {env.get('LD_LIBRARY_PATH', 'NOT_SET')}")
-    print(f"[robot_config] ===============================================")
-
-    # Step 5: Create inference node with enriched environment
+    # Step 5: Create inference node
     node_params = {
-        'checkpoint': model_config['path'], # Changed from model_path to checkpoint
+        'checkpoint': model_config['path'],
         'contract_path': str(contract_path),
         'passive_mode': True,
         'device': 'auto',
@@ -150,7 +104,7 @@ def generate_inference_node(robot_config, control_mode, use_sim=False):
         package='inference_service',
         executable='lerobot_policy_node',
         name='act_inference_node',
-        env=env, # <--- Pass the enriched environment
+        env=env,
         parameters=[node_params],
         output='screen',
     )
@@ -275,8 +229,7 @@ def generate_execution_nodes(robot_config, control_mode='teleop_act', use_sim=Fa
 
     # Use robot's default_control_mode if not specified
     if not control_mode or control_mode == 'default':
-        robot_cfg = robot_config.get('robot', {})
-        control_mode = robot_cfg.get('default_control_mode', 'teleop_act')
+        control_mode = robot_config.get('default_control_mode', 'teleop_act')
 
     # Step 1: Generate inference node (if enabled)
     try:
