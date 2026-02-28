@@ -6,7 +6,6 @@ This module handles:
 - Virtual camera relays
 """
 
-from pathlib import Path
 from launch_ros.actions import Node
 
 from robot_config.utils import parse_bool

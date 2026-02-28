@@ -1,44 +1,44 @@
 # robot_config
 
-Unified robot configuration system for ros2_control and peripherals.
+ros2_control 和外设的统一机器人配置系统。
 
-## Overview
+## 概述
 
-This package provides a unified configuration system for robot hardware that bridges:
+本软件包为机器人硬件提供统一的配置系统，桥接以下组件：
 
-- **ros2_control**: For joint/motor control interfaces
-- **Peripherals**: For cameras and other devices (via existing ROS2 drivers)
-- **Rosetta**: For ML policy I/O contracts
+- **ros2_control**：用于关节/电机控制接口
+- **外设**：用于相机和其他设备（通过现有 ROS2 驱动）
+- **Rosetta**：用于 ML 策略 I/O 契约
 
-The goal is to have a single source of truth for robot hardware configuration, eliminating duplication between different configuration systems.
+目标是建立机器人硬件配置的单一数据源，消除不同配置系统之间的重复。
 
-## Features
+## 特性
 
-- **Single YAML configuration**: Define ros2_control, cameras, and ML contracts in one file
-- **Uses existing ROS2 camera drivers**:
-  - `usb_cam` for USB cameras (OpenCV-based)
-  - `realsense2_camera` for RealSense D400 series
-- **TF publishing**: Automatic camera frame transform publishing
-- **Calibration support**: Standard ROS2 camera_info_manager integration
-- **Rosetta integration**: Contracts reference peripherals by name
+- **单一 YAML 配置**：在一个文件中定义 ros2_control、相机和 ML 契约
+- **使用现有 ROS2 相机驱动**：
+  - `usb_cam` 用于 USB 相机（基于 OpenCV）
+  - `realsense2_camera` 用于 RealSense D400 系列
+- **TF 发布**：自动发布相机坐标系变换
+- **标定支持**：标准 ROS2 camera_info_manager 集成
+- **Rosetta 集成**：契约通过名称引用外设
 
-## Architecture
+## 架构
 
 ```
-robot_config YAML (single source of truth)
+robot_config YAML（单一数据源）
         │
-        ├───► ros2_control (joints/motors)
-        │       └───► so101_hardware plugin
+        ├───► ros2_control（关节/电机）
+        │       └───► so101_hardware 插件
         │
-        ├───► Camera drivers (existing ROS2 packages)
-        │       ├───► usb_cam (USB cameras)
-        │       └───► realsense2_camera (RealSense D400)
+        ├───► 相机驱动（现有 ROS2 包）
+        │       ├───► usb_cam（USB 相机）
+        │       └───► realsense2_camera（RealSense D400）
         │
-        └───► Rosetta contracts (ML I/O)
+        └───► Rosetta 契约（ML I/O）
                 └───► PolicyBridge / EpisodeRecorder
 ```
 
-## Configuration Example
+## 配置示例
 
 ```yaml
 robot:
@@ -57,7 +57,7 @@ robot:
   peripherals:
     - type: camera
       name: top
-      driver: opencv  # Uses usb_cam package
+      driver: opencv  # 使用 usb_cam 包
       index: 0
       width: 640
       height: 480
@@ -67,7 +67,7 @@ robot:
 
     - type: camera
       name: wrist
-      driver: realsense  # Uses realsense2_camera package
+      driver: realsense  # 使用 realsense2_camera 包
       serial_number: "12345678"
       width: 640
       height: 480
@@ -80,158 +80,99 @@ robot:
     observations:
       - key: observation.images.top
         topic: /camera/top
-        peripheral: top  # References camera above
+        peripheral: top  # 引用上面的相机
         image:
           resize: [480, 640]
 ```
 
-## Control Mode Configuration
+## 控制模式配置
 
-The robot_config package supports dual control modes for different AI model requirements:
+robot_config 包支持双控制模式，以满足不同 AI 模型的需求：
 
-### Available Control Modes
+### 可用控制模式
 
-#### 1. teleop_act Mode (High-Frequency Position Control)
+#### 1. teleop_act 模式（高频位置控制）
 
-**Use for:** End-to-end imitation learning models (ACT, pi0, Diffusion Policy)
+**适用于：** 端到端模仿学习模型（ACT、pi0、Diffusion Policy）
 
-**Characteristics:**
-- High-frequency control (50-100Hz)
-- Low latency (1-3ms)
-- Direct topic-based position commands
-- Reactive, fluid movements
+**特点：**
+- 高频控制（50-100Hz）
+- 低延迟（1-3ms）
+- 直接基于话题的位置命令
+- 反应迅速、运动流畅
 
-**Configuration:**
+**配置：**
 ```yaml
 robot:
   default_control_mode: "teleop_act"
 
   control_modes:
     teleop_act:
-      description: "High-frequency end-to-end control mode"
+      description: "高频端到端控制模式"
       controllers:
         - joint_state_broadcaster
         - arm_position_controller
         - gripper_position_controller
 ```
 
-**Launched controllers:**
+**启动的控制器：**
 - `arm_position_controller` (JointGroupPositionController)
 - `gripper_position_controller` (ForwardCommandController)
 
-**Command interface:**
+**命令接口：**
 ```bash
-# Arm position commands
+# 机械臂位置命令
 ros2 topic pub /arm_position_controller/commands std_msgs/msg/Float64MultiArray "data: [1.0, 2.0, 3.0, 4.0, 5.0]"
-
-# Gripper position commands
-ros2 topic pub /gripper_position_controller/commands std_msgs/msg/Float64MultiArray "data: [0.5]"
 ```
 
-#### 2. moveit_planning Mode (Trajectory Planning)
+#### 2. moveit_planning 模式（轨迹规划控制）
 
-**Use for:** Planning-based models (VoxPoser, VLM, goal-conditioned policies)
+**适用于：** 基于规划的模型（VoxPoser、VLM、目标条件化）
 
-**Characteristics:**
-- MoveIt integration (OMPL/Pilz planners)
-- Time-parameterized trajectories
-- Action-based execution with monitoring
-- Collision avoidance support
+**特点：**
+- 轨迹插值和时间参数化
+- 通过 MoveIt 动作接口执行
+- 碰撞检测和避障
+- 更平滑的轨迹
 
-**Configuration:**
+**配置：**
 ```yaml
 robot:
   default_control_mode: "moveit_planning"
 
   control_modes:
     moveit_planning:
-      description: "MoveIt trajectory planning mode"
+      description: "MoveIt 轨迹规划模式"
       controllers:
         - joint_state_broadcaster
         - arm_trajectory_controller
         - gripper_trajectory_controller
 ```
 
-**Launched controllers:**
+**启动的控制器：**
 - `arm_trajectory_controller` (JointTrajectoryController)
 - `gripper_trajectory_controller` (JointTrajectoryController)
 
-**Command interface:**
+**命令接口：**
 ```bash
-# List available actions
-ros2 action list
-
-# Execute trajectory via action
+# 通过 MoveIt 动作执行轨迹
 ros2 action send_goal /arm_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{...}"
 ```
 
-### Overriding Control Mode at Runtime
-
-Control mode can be overridden via command line:
-
-```bash
-# Use default mode from config file
-ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm
-
-# Override to teleop_act mode
-ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=teleop_act
-
-# Override to moveit_planning mode
-ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=moveit_planning
-```
-
-### Mode Selection Decision Guide
-
-```
-What type of model are you using?
-│
-├─ End-to-end imitation learning (ACT, pi0, Diffusion)
-│  └─ Use teleop_act mode
-│     ├─ Model outputs high-frequency position streams (50-100Hz)
-│     ├─ Needs minimal latency (< 5ms)
-│     └─ No trajectory planning required
-│
-└─ Planning-based (VoxPoser, VLM, goal-conditioned)
-   └─ Use moveit_planning mode
-      ├─ Model outputs sparse waypoints or goals
-      ├─ Needs collision avoidance
-      ├─ Requires MoveIt integration
-      └─ Time-parameterized trajectories important
-```
-
-### Complete Configuration Example
+### 完整控制模式配置示例
 
 ```yaml
 robot:
   name: so101_single_arm
   type: so101
-  robot_type: so_101
+  default_control_mode: "teleop_act"  # 或 "moveit_planning"
 
-  # Control mode management
-  default_control_mode: "teleop_act"  # Can be overridden via command line
-
-  control_modes:
-    teleop_act:
-      description: "High-frequency end-to-end control mode (ACT/pi0)"
-      controllers:
-        - joint_state_broadcaster
-        - arm_position_controller
-        - gripper_position_controller
-
-    moveit_planning:
-      description: "MoveIt trajectory planning mode (VoxPoser/VLM)"
-      controllers:
-        - joint_state_broadcaster
-        - arm_trajectory_controller
-        - gripper_trajectory_controller
-
-  # Unified joint configuration (DRY principle)
   joints:
     arm: ["1", "2", "3", "4", "5"]
     gripper: ["6"]
     all: ["1", "2", "3", "4", "5", "6"]
 
-  # Hardware configuration
+  # 硬件配置
   ros2_control:
     hardware_plugin: so101_hardware/SO101SystemHardware
     port: /dev/ttyACM0
@@ -240,7 +181,7 @@ robot:
       "1": 0.0813
       "2": 3.7905
 
-  # Peripherals (cameras, sensors)
+  # 外设（相机、传感器）
   peripherals:
     - type: camera
       name: top
@@ -250,7 +191,7 @@ robot:
       height: 480
       fps: 30
 
-  # ML contract
+  # ML 契约
   contract:
     observations:
       - key: observation.images.top
@@ -260,139 +201,138 @@ robot:
           resize: [480, 640]
     actions:
       - key: action
-        topic: /arm_position_controller/commands  # Changes based on mode
+        topic: /arm_position_controller/commands  # 根据模式变化
         ros_type: std_msgs/msg/Float64MultiArray
         names: ["1", "2", "3", "4", "5", "6"]
 ```
 
-### How Mode Switching Works
+### 模式切换工作原理
 
-1. **Configuration Phase:**
-   - `robot.launch.py` reads `default_control_mode` from YAML
-   - Can be overridden via `control_mode:=xxx` command line argument
-   - Validates mode exists in `control_modes` section
+1. **配置阶段：**
+   - `robot.launch.py` 从 YAML 读取 `default_control_mode`
+   - 可通过 `control_mode:=xxx` 命令行参数覆盖
+   - 验证模式是否存在于 `control_modes` 部分
 
-2. **Controller Spawning:**
-   - Only controllers listed in the selected mode are spawned
-   - Ensures no controller conflicts (same joint can't be controlled by multiple controllers)
+2. **控制器生成：**
+   - 仅生成所选模式中列出的控制器
+   - 确保无控制器冲突（同一关节不能被多个控制器控制）
 
-3. **Action Dispatch Integration:**
-   - `action_dispatch` node reads current mode from `robot_config`
-   - Instantiates appropriate executor (TopicExecutor or ActionExecutor)
-   - Provides unified API for upstream inference services
+3. **动作分发集成：**
+   - `action_dispatch` 节点从 `robot_config` 读取当前模式
+   - 实例化适当的执行器（TopicExecutor 或 ActionExecutor）
+   - 为上游推理服务提供统一 API
 
-### Troubleshooting Control Modes
+### 控制模式故障排除
 
-#### Mode not switching
+#### 模式未切换
 
-**Problem:** Command line override not taking effect
+**问题：** 命令行覆盖未生效
 
-**Solution:** Ensure `control_mode` parameter is correctly spelled:
+**解决方案：** 确保 `control_mode` 参数拼写正确：
 ```bash
-# Correct
-ros2 launch robot_config robot.launch.py control_mode:=moveit_planning
-
-# Incorrect (typo)
-ros2 launch robot_config robot.launch.py control_mode:=moveit_planing
+ros2 launch robot_config robot.launch.py control_mode:=moveit_planning use_sim:=true
 ```
 
-#### Controller not starting
+#### 控制器冲突
 
-**Problem:** Controllers fail to activate
+**问题：** 同一关节被多个控制器控制
 
-**Solution:** Check controller configuration in `so101_hardware/config/so101_controllers.yaml`:
-```bash
-# Verify controller exists
-ros2 control list_controllers
-
-# Check controller configuration
-cat src/so101_hardware/config/so101_controllers.yaml | grep -A 10 "arm_trajectory_controller"
+**解决方案：** 检查配置，确保每种模式使用互斥的控制器：
+```yaml
+control_modes:
+  teleop_act:
+    controllers:
+      - arm_position_controller      # 位置控制器
+  moveit_planning:
+    controllers:
+      - arm_trajectory_controller    # 轨迹控制器（不同类型）
 ```
 
-#### Action server not available
+#### 执行器类型不匹配
 
-**Problem:** `FollowJointTrajectory` action not found in moveit_planning mode
+**问题：** 推理服务发送位置命令但启动了轨迹控制器
 
-**Solution:** Ensure trajectory controllers are active:
-```bash
-# List active controllers
-ros2 control list_controllers | grep trajectory
+**解决方案：** 确保控制模式与模型类型匹配：
+- ACT/pi0 模型 → `teleop_act` 模式
+- VoxPoser/VLM 模型 → `moveit_planning` 模式
 
-# Should see:
-# arm_trajectory_controller[joint_trajectory_controller/JointTrajectoryController] active
-# gripper_trajectory_controller[joint_trajectory_controller/JointTrajectoryController] active
-```
+## 使用方法
 
-For more details, see:
-- [action_dispatch README](../action_dispatch/README.md) - Detailed executor documentation
-- [docs/architecture.md](../../docs/architecture.md) - System architecture overview
-
-
-## Usage
-
-### Launching the Robot
+### 启动机器人
 
 ```bash
-# Launch with real hardware
+# 启动真实硬件
 ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm
 
-# Launch with simulation
+# 启动仿真
 ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm use_sim:=true
+
+# MoveIt 规划模式（带 RViz）
+ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=moveit_planning use_sim:=true
+
+# MoveIt 模式无 RViz（headless）
+ros2 launch robot_config robot.launch.py robot_config:=so101_single_arm control_mode:=moveit_planning use_sim:=true moveit_display:=false
 ```
 
-### Validating Configuration
+### 验证配置
 
 ```bash
-# Validate a robot config file with Python directly
-python3 src/ros2/ros2_ws/src/robot_config/robot_config/scripts/validate_config.py \
-    src/ros2/ros2_ws/src/robot_config/config/robots/so101_single_arm.yaml
+# 直接使用 Python 验证机器人配置文件
+python3 src/robot_config/robot_config/scripts/validate_config.py \
+    src/robot_config/config/robots/so101_single_arm.yaml
 ```
 
-## Camera Drivers
+## 相机驱动
 
-### USB Cameras (via `usb_cam`)
+### USB 相机（通过 `usb_cam`）
 
 ```yaml
 - type: camera
   name: usb_cam
-  driver: opencv  # Uses usb_cam package
-  index: 0  # USB device index (/dev/video0)
+  driver: opencv
+  index: 0
   width: 640
   height: 480
   fps: 30
-  pixel_format: bgr8  # bgr8, rgb8, mono8, yuyv, etc.
+  pixel_format: mjpeg2rgb
+  frame_id: camera_frame
+  camera_info_url: file://$(env HOME)/.ros/camera_info/top.yaml
 ```
 
-**Install:**
+**安装：**
 ```bash
 sudo apt install ros-humble-usb-cam
 ```
 
-### RealSense D400 Series (via `realsense2_camera`)
+### RealSense 相机（通过 `realsense2_camera`）
 
 ```yaml
 - type: camera
-  name: rs_cam
-  driver: realsense  # Uses realsense2_camera package
-  serial_number: "12345678"  # Device serial (optional)
+  name: realsense
+  driver: realsense
+  serial_number: "12345678"
   width: 640
   height: 480
   fps: 30
   depth_width: 640
   depth_height: 480
   depth_fps: 30
-  enable_pointcloud: false
+  enable_depth: true
+  enable_color: true
   align_depth: false
 ```
 
-**Install:**
+**安装：**
 ```bash
+# Ubuntu
 sudo apt install ros-humble-librealsense2*
+# openEuler
+sudo dnf install ros-humble-librealsense2*
 ```
 
-## Camera Calibration
+## 相机标定
 
-Camera intrinsics can be stored in the standard ROS2 location:
+相机内参可以存储在标准 ROS2 位置：
 
 ```yaml
 - type: camera
@@ -404,7 +344,7 @@ Camera intrinsics can be stored in the standard ROS2 location:
   camera_info_url: file://$(env HOME)/.ros/camera_info/top_camera.yaml
 ```
 
-Calibration files can be created using the standard ROS2 camera calibration tools:
+可以使用标准 ROS2 相机标定工具创建标定文件：
 
 ```bash
 ros2 run camera_calibration cameracalibrator \
@@ -413,81 +353,95 @@ ros2 run camera_calibration cameracalibrator \
   image:=/camera/top/image_raw
 ```
 
-## Rosetta Integration
+## Rosetta 集成
 
-The robot_config integrates with rosetta contracts by allowing observations to reference peripherals by name:
+robot_config 通过允许观察通过名称引用外设来与 rosetta 契约集成：
 
 ```yaml
-# In robot_config
+# 在 robot_config 中
 peripherals:
   - type: camera
     name: top
     width: 640
     height: 480
 
-# In contract section
+# 在 contract 部分
 contract:
   observations:
     - key: observation.images.top
       topic: /camera/top
-      peripheral: top  # Auto-fills width, height, fps from peripheral
+      peripheral: top  # 自动填充外设的 width、height、fps
 ```
 
-When the contract is loaded, it will automatically include the camera metadata from the peripheral definition.
+当契约加载时，将自动包含外设定义中的相机元数据。
 
-## Migration from robot_interface
+## 从 robot_interface 迁移
 
-The old `robot_interface` package used LeRobot's Robot class directly. This package replaces it with:
+旧的 `robot_interface` 包直接使用 LeRobot 的 Robot 类。本包替换为：
 
-1. **No LeRobot dependency in ROS2 layer**: Uses ros2_control directly
-2. **ros2_control native**: Standard ROS2 hardware interface
-3. **Existing ROS2 camera drivers**: Uses `usb_cam` and `realsense2_camera` packages
-4. **Single YAML configuration**: All hardware defined in one place
+1. **ROS2 层无 LeRobot 依赖**：直接使用 ros2_control
+2. **ros2_control 原生**：标准 ROS2 硬件接口
+3. **现有 ROS2 相机驱动**：使用 `usb_cam` 和 `realsense2_camera` 包
+4. **单一 YAML 配置**：所有硬件在一个地方定义
 
-The two example configurations from `robot_interface` have been manually migrated to:
-- `config/robots/so101_single_arm.yaml` (from `single_arm_banana.yaml`)
-- `config/robots/so101_dual_arm.yaml` (from `dual_arms_pencil.yaml`)
+`robot_interface` 的两个示例配置已手动迁移到：
+- `config/robots/so101_single_arm.yaml`（来自 `single_arm_banana.yaml`）
+- `config/robots/so101_dual_arm.yaml`（来自 `dual_arms_pencil.yaml`）
 
-## Troubleshooting
+## 故障排除
 
-### Camera not opening
+### 相机无法打开
 
-Check USB permissions:
+检查 USB 权限：
 ```bash
 ls -l /dev/video*
 sudo chmod 666 /dev/video0
 ```
 
-Or add user to `video` group:
+或将用户添加到 `video` 组：
 ```bash
 sudo usermod -a -G video $USER
 ```
 
-### RealSense camera not found
+### RealSense 相机未找到
 
-Install librealsense2:
+安装 librealsense2：
 ```bash
+# Ubuntu
 sudo apt install librealsense2-utils librealsense2-dev
 sudo apt install ros-humble-librealsense2*
+
+# openEuler
+sudo dnf install librealsense2-utils librealsense2-devel
+sudo dnf install ros-humble-librealsense2*
 ```
 
-Check camera is connected:
+检查相机是否连接：
 ```bash
 realsense-viewer
 ```
 
-### Calibration file not found
+### 标定文件未找到
 
-Make sure the path is correct and starts with `file://`:
+确保路径正确并以 `file://` 开头：
 ```yaml
 camera_info_url: file:///home/user/.ros/camera_info/top.yaml
 ```
 
-## References
+### 控制器加载失败
 
-- [usb_cam GitHub](https://github.com/ros-drivers/usb_cam) - USB camera driver for ROS2
-- [realsense-ros GitHub](https://github.com/realsenseai/realsense-ros) - Intel RealSense ROS2 wrapper
+如果遇到 "Controller already loaded" 错误，运行清理脚本：
+```bash
+./scripts/cleanup_ros.sh
+```
 
-## License
+## 参考资料
+
+- [usb_cam GitHub](https://github.com/ros-drivers/usb_cam) - ROS2 USB 相机驱动
+- [realsense-ros GitHub](https://github.com/realsenseai/realsense-ros) - Intel RealSense ROS2 封装
+- [action_dispatch README](../action_dispatch/README.md) - 详细执行器文档
+- [docs/architecture.md](../../docs/architecture.md) - 系统架构概览
+
+## 许可证
 
 Apache-2.0

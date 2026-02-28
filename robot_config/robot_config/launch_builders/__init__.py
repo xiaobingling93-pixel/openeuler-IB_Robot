@@ -23,6 +23,10 @@ from robot_config.launch_builders.simulation import (
     generate_gazebo_nodes
 )
 
+from robot_config.launch_builders.moveit import (
+    generate_moveit_nodes
+)
+
 __all__ = [
     # Control
     'generate_ros2_control_nodes',
@@ -34,4 +38,6 @@ __all__ = [
     'generate_virtual_camera_relays',
     # Simulation
     'generate_gazebo_nodes',
+    # MoveIt
+    'generate_moveit_nodes',
 ]

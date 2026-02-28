@@ -9,7 +9,7 @@ This module handles:
 from pathlib import Path
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -33,18 +33,6 @@ def generate_gazebo_nodes(robot_config):
     # Collect all resource paths to set them together
     gazebo_resource_paths = []
     gazebo_model_paths = []
-
-    # Set Gazebo resource path for so101_hardware
-    try:
-        gazebo_models_path = os.path.join(
-            FindPackageShare('so101_hardware').find('so101_hardware'),
-            'models'
-        )
-        gazebo_resource_paths.append(gazebo_models_path)
-        gazebo_model_paths.append(gazebo_models_path)
-        print(f"[robot_config] Added so101_hardware models path: {gazebo_models_path}")
-    except Exception as e:
-        print(f"[robot_config] WARNING: Could not find so101_hardware package: {e}")
 
     # Set robot_description package path for mesh files (CRITICAL for robot visualization)
     # IMPORTANT: Gazebo looks for model://robot_description/... which resolves to
