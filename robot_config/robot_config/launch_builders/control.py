@@ -60,17 +60,18 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         auto_start_controllers: Whether to automatically start controllers (string or bool)
 
     Returns:
-        List of Node actions for ros2_control
+        Tuple: (List of Node actions, Dictionary of spawner nodes)
     """
     is_sim = parse_bool(use_sim, default=False)
     is_auto_start = parse_bool(auto_start_controllers, default=True)
 
     nodes = []
+    spawners_dict = {}
     ros2_control_config = robot_config.get("ros2_control")
 
     if not ros2_control_config:
         print("[robot_config] No ros2_control configuration found")
-        return nodes
+        return nodes, spawners_dict
 
     print("[robot_config] Creating ros2_control nodes")
 
@@ -81,14 +82,14 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
     urdf_path = ros2_control_config.get("urdf_path")
     if not urdf_path:
         print("[robot_config] WARNING: No urdf_path specified")
-        return nodes
+        return nodes, spawners_dict
 
     urdf_path = resolve_ros_path(urdf_path)
     print(f"[robot_config] URDF path: {urdf_path}")
 
     if not Path(urdf_path).exists():
         print(f"[robot_config] WARNING: URDF file not found at {urdf_path}")
-        return nodes
+        return nodes, spawners_dict
 
     # Get hardware parameters
     port = ros2_control_config.get("port", "/dev/ttyACM0")
@@ -173,6 +174,10 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
             if is_auto_start and controller_names:
                 spawners = generate_controller_spawners(controller_names, use_sim=False)
                 nodes.extend(spawners)
+                # Store spawners in dict
+                for i, name in enumerate(controller_names):
+                    if i < len(spawners):
+                        spawners_dict[name] = spawners[i]
     else:
         # Simulation mode
         print("[robot_config] Simulation mode: Gazebo provides controller_manager")
@@ -182,5 +187,9 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
             spawners = generate_controller_spawners(controller_names, use_sim=True)
             nodes.extend(spawners)
             print(f"[robot_config] Added {len(spawners)} controller spawners")
+            # Store spawners in dict
+            for i, name in enumerate(controller_names):
+                if i < len(spawners):
+                    spawners_dict[name] = spawners[i]
 
-    return nodes
+    return nodes, spawners_dict

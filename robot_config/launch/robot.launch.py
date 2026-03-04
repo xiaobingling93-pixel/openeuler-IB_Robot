@@ -60,7 +60,9 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
+    RegisterEventHandler,
 )
+from launch.event_handlers import OnProcessExit
 
 # Import utility functions
 from robot_config.utils import resolve_ros_path, parse_bool
@@ -162,7 +164,7 @@ def launch_setup(context, *args, **kwargs):
     # ========== 4. Generate Control System Nodes ==========
     print(f"[robot_config] ========== Generating Control Nodes ==========")
     try:
-        control_nodes = generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers)
+        control_nodes, spawners_dict = generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers)
         actions.extend(control_nodes)
         print(f"[robot_config] Added {len(control_nodes)} control nodes")
     except Exception as e:
@@ -248,7 +250,21 @@ def launch_setup(context, *args, **kwargs):
         if with_moveit:
             from robot_config.launch_builders.moveit import generate_moveit_nodes
             moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display)
-            actions.extend(moveit_nodes)
+            
+            # Find the joint_state_broadcaster spawner to use as a trigger
+            jsb_spawner = spawners_dict.get('joint_state_broadcaster')
+            
+            if jsb_spawner:
+                print(f"[robot_config] Delaying MoveIt nodes until joint_state_broadcaster_spawner exits...")
+                actions.append(RegisterEventHandler(
+                    event_handler=OnProcessExit(
+                        target_action=jsb_spawner,
+                        on_exit=moveit_nodes,
+                    )
+                ))
+            else:
+                print(f"[robot_config] Warning: joint_state_broadcaster spawner not found in spawners_dict, launching MoveIt immediately")
+                actions.extend(moveit_nodes)
         else:
             print(f"[robot_config] Skipping MoveIt nodes")
     except Exception as e:
