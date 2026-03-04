@@ -94,6 +94,11 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
     # Get hardware parameters
     port = ros2_control_config.get("port", "/dev/ttyACM0")
     calib_file = resolve_ros_path(ros2_control_config.get("calib_file", ""))
+    
+    # Handle reset_positions
+    import json
+    reset_positions_dict = ros2_control_config.get("reset_positions", {})
+    reset_positions_json = json.dumps(reset_positions_dict)
 
     # Generate robot_description using xacro
     xacro_args = [
@@ -109,6 +114,9 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         " ",
         "calib_file:=",
         calib_file,
+        " ",
+        "reset_positions:=",
+        f"'{reset_positions_json}'",
     ]
 
     robot_description_content = ParameterValue(

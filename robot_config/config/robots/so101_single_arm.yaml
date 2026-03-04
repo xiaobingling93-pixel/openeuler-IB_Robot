@@ -86,13 +86,13 @@ robot:
     port: /dev/ttyACM0
     calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
     joint_names: ["1", "2", "3", "4", "5", "6"]
-    # Reset positions (optional) - safe folded position for dog-mounted arm
-    # reset_positions:
-    #   "1": 0.0813
-    #   "2": 3.7905
-    #   "3": 7.0379
-    #   "4": -0.6228
-    #   "5": 2.3869
+    # Reset positions (optional)
+    reset_positions:
+      "1": 0.0
+      "2": 0.0
+      "3": 0.0
+      "4": 0.0
+      "5": 0.0
     urdf_path: $(find robot_description)/urdf/lerobot/so101/so101.urdf.xacro
 
     # Controllers configuration

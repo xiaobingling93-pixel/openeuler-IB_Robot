@@ -17,6 +17,7 @@ hardware_interface::CallbackReturn SO101SystemHardware::on_init(
 
   port_ = info_.hardware_parameters["port"];
   calib_file_ = info_.hardware_parameters["calib_file"];
+  reset_positions_str_ = info_.hardware_parameters["reset_positions"];
 
   hw_positions_.resize(info_.joints.size(), 0.0);
   hw_velocities_.resize(info_.joints.size(), 0.0);
@@ -27,6 +28,24 @@ hardware_interface::CallbackReturn SO101SystemHardware::on_init(
   target_accs_.resize(info_.joints.size(), 0);
   reset_positions_.resize(info_.joints.size(), 0.0);
   has_reset_positions_ = false;
+
+  try {
+    if (!reset_positions_str_.empty() && reset_positions_str_ != "''" && reset_positions_str_ != "\"\"") {
+      auto reset_json = nlohmann::json::parse(reset_positions_str_);
+      for (size_t i = 0; i < info_.joints.size(); i++) {
+        std::string joint_name = info_.joints[i].name;
+        if (reset_json.contains(joint_name)) {
+          reset_positions_[i] = reset_json[joint_name];
+          has_reset_positions_ = true;
+        }
+      }
+      if (has_reset_positions_) {
+        RCLCPP_INFO(rclcpp::get_logger("SO101SystemHardware"), "Loaded reset positions from config");
+      }
+    }
+  } catch (const std::exception& e) {
+    RCLCPP_WARN(rclcpp::get_logger("SO101SystemHardware"), "Failed to parse reset_positions: %s", e.what());
+  }
 
   for (size_t i = 0; i < info_.joints.size(); i++)
   {
@@ -169,9 +188,16 @@ hardware_interface::CallbackReturn SO101SystemHardware::on_activate(
       {
         s16 pos = (data[1] << 8) | data[0];
         double rad = (static_cast<double>(pos) - 2048.0) / TICKS_PER_RAD;
-        hw_commands_[i] = rad;
+        
+        // Use reset position if specified, otherwise stay at current position
+        if (has_reset_positions_) {
+          hw_commands_[i] = reset_positions_[i];
+          RCLCPP_INFO(rclcpp::get_logger("SO101SystemHardware"), "Initial command set to RESET position: %.4f (Current RAW: %d)", reset_positions_[i], pos);
+        } else {
+          hw_commands_[i] = rad;
+          RCLCPP_DEBUG(rclcpp::get_logger("SO101SystemHardware"), "Initial Sync ID %d: RAW=%d -> RAD=%.4f", id, pos, rad);
+        }
         hw_positions_[i] = rad;
-        RCLCPP_DEBUG(rclcpp::get_logger("SO101SystemHardware"), "Initial Sync ID %d: RAW=%d -> RAD=%.4f", id, pos, rad);
       }
     }
   }
