@@ -17,5 +17,4 @@ setup(
     maintainer_email='wuxiaoqiang.rtos@huawei.com',
     description='SO-101 robot hardware with C++ ros2_control and Python tools',
     license='Apache-2.0',
-    tests_require=['pytest'],
 )

@@ -31,7 +31,6 @@ setup(
     keywords=['ros2', 'lerobot', 'robotics', 'policy', 'recording'],
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python',
         'Topic :: Software Development',
         'Topic :: Scientific/Engineering',

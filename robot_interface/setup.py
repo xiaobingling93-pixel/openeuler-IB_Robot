@@ -19,9 +19,8 @@ setup(
     zip_safe=True,
     maintainer='ch3cooh',
     maintainer_email='haoyida542@gmail.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    tests_require=['pytest'],
+    description='Robot interface package',
+    license='Apache-2.0',
     entry_points={
         'console_scripts': [
             "robot_interface = robot_interface.main:main",

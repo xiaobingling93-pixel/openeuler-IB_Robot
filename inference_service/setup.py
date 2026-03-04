@@ -24,11 +24,13 @@ setup(
     maintainer_email='wuxiaoqiang.rtos@huawei.com',
     description='Multi-model inference service for IB-Robot integration',
     license='Apache-2.0',
-    tests_require=['pytest'],
     python_requires='>=3.8',
     entry_points={
         'console_scripts': [
             'lerobot_policy_node = inference_service.lerobot_policy_node:main',
+            'pure_inference_node = inference_service.pure_inference_node:main',
+            'preprocessor_node = inference_service.components.preprocessor:main',
+            'postprocessor_node = inference_service.components.postprocessor:main',
             'yolo_graspnet_node = inference_service.yolo_graspnet_node:main',
             'mock_inference_node = inference_service.mock_inference_node:main',
             'simple_mock_inference = inference_service.simple_mock_inference:main',

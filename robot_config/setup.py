@@ -22,5 +22,4 @@ setup(
     maintainer_email='wuxiaoqiang.rtos@huawei.com',
     description='Unified robot configuration system for ros2_control and peripherals',
     license='Apache-2.0',
-    tests_require=['pytest'],
 )

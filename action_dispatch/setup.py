@@ -17,7 +17,6 @@ setup(
     maintainer_email='dev@example.com',
     description='Pull-based action dispatch package for LeRobot-ROS2 integration',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'action_dispatcher_node = action_dispatch.action_dispatcher_node:main',
