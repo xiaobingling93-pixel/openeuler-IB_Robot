@@ -188,6 +188,12 @@ setup_python_venv() {
     log_info "Installing hardware dependencies (pyserial, feetech)..."
     python3 -m pip install pyserial feetech-servo-sdk --quiet
 
+    # 安装 gitlint 并设置 git hook
+    log_info "Installing gitlint..."
+    python3 -m pip install gitlint --quiet
+    log_info "Installing gitlint pre-commit hook..."
+    gitlint install-hook
+
     # 4. 环境验证
     log_info "Verifying ROS 2 connection..."
     # 显式加载 ROS 2 环境后再验证
