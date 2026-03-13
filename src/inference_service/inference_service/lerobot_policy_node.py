@@ -114,8 +114,18 @@ class LeRobotPolicyNode(Node):
     
     The distributed mode is transparent to action_dispatch - it always sees
     the same Action Server interface.
-    """
     
+    Observation Filtering:
+    ----------------------
+    The node automatically filters observations based on the model's config.json.
+    - robot_config.yaml defines ALL available observations (hardware config)
+    - Model's config.json defines REQUIRED input_features
+    - Node only subscribes to observations that match input_features
+    
+    This allows a single robot_config.yaml to support multiple models with
+    different observation requirements.
+    """
+
     def __init__(self, model_config: Dict):
         super().__init__(model_config.get("node_name", "lerobot_policy_node"))
         
@@ -140,6 +150,11 @@ class LeRobotPolicyNode(Node):
         self._obs_zero: Dict[str, np.ndarray] = {}
         self._subs: Dict[str, _SubState] = {}
         self._state_specs: List[SpecView] = []
+        self._policy_config: Optional[Dict] = None
+        self._required_inputs: set = set()  # Input features required by model
+        
+        # Load model config first to get required inputs
+        self._load_policy_config()
         
         if self._config.contract_path:
             self._load_contract(self._config.contract_path)
@@ -163,14 +178,57 @@ class LeRobotPolicyNode(Node):
             f"chunk_size={self._chunk_size}"
         )
     
+    def _load_policy_config(self):
+        """Load model config.json to get required input_features."""
+        import json
+        
+        policy_path = self._config.repo_id or self._config.checkpoint
+        if not policy_path:
+            self.get_logger().warn("No policy path provided, cannot load model config")
+            return
+        
+        config_path = Path(policy_path) / "config.json"
+        if not config_path.exists():
+            self.get_logger().warn(f"Model config not found: {config_path}")
+            return
+        
+        with open(config_path, "r") as f:
+            self._policy_config = json.load(f)
+        
+        # Extract required input features
+        input_features = self._policy_config.get("input_features", {})
+        self._required_inputs = set(input_features.keys())
+        
+        self.get_logger().info(f"Model requires {len(self._required_inputs)} input features:")
+        for key in self._required_inputs:
+            self.get_logger().info(f"  - {key}")
+    
     def _load_contract(self, contract_path: str):
-        """Load contract from YAML file."""
+        """Load contract from YAML file and filter by model's input_features."""
         p = Path(contract_path)
         if not p.exists():
             raise RuntimeError(f"Contract file not found: {contract_path}")
         
         self._contract = load_contract(contract_path)
-        self._obs_specs = [s for s in iter_specs(self._contract) if not s.is_action]
+        
+        # Get all observation specs from contract
+        all_obs_specs = [s for s in iter_specs(self._contract) if not s.is_action]
+        
+        # Filter by model's required inputs
+        if self._required_inputs:
+            self._obs_specs = [
+                s for s in all_obs_specs 
+                if s.key in self._required_inputs
+            ]
+            skipped = len(all_obs_specs) - len(self._obs_specs)
+            if skipped > 0:
+                self.get_logger().info(
+                    f"Filtered observations: {len(self._obs_specs)} required, {skipped} skipped"
+                )
+        else:
+            # No model config, use all observations
+            self._obs_specs = all_obs_specs
+        
         self._state_specs = [s for s in self._obs_specs if s.key == "observation.state"]
         
         self._topic_to_qos = {}
@@ -178,7 +236,7 @@ class LeRobotPolicyNode(Node):
             self._topic_to_qos[obs.topic] = obs.qos
         
         self.get_logger().info(
-            f"Loaded contract with {len(self._obs_specs)} observation specs"
+            f"Loaded contract with {len(self._obs_specs)} observation specs (from {len(all_obs_specs)} total)"
         )
     
     def _setup_observation_subscriptions(self):

@@ -72,22 +72,15 @@ robot:
         - arm_position_controller
         - gripper_position_controller
       # ============================================
-      # Inference configuration (新增)
+      # Inference configuration
       # ============================================
       inference:
         enabled: true
-        execution_mode: "distributed"
+        # execution_mode: "distributed"
         model: so101_act
         action_server: /inference/dispatch
-        observations:
-          - source: wrist
-            key: images.wrist
-          - source: top
-            key: images.top
-          - source: joint_states
-            key: state
       # ============================================
-      # Executor configuration (新增)
+      # Executor configuration
       # ============================================
       executor:
         type: topic  # topic | action
@@ -267,6 +260,7 @@ robot:
           depth: 50
 
     actions:
+      # Arm joints (1-5) - uses same key "action" for consolidation
       - key: action
         selector:
           names:
@@ -275,7 +269,6 @@ robot:
             - "action.2"
             - "action.3"
             - "action.4"
-            - "action.5"
         publish:
           topic: /arm_position_controller/commands
           type: std_msgs/msg/Float64MultiArray
@@ -287,7 +280,25 @@ robot:
           strategy:
             mode: nearest
             tolerance_ms: 500
-        safety_behavior: hold  # 'zeros' to send zeros, 'hold' to maintain last command
+        safety_behavior: hold
+
+      # Gripper joint (6) - uses same key "action" for consolidation
+      - key: action
+        selector:
+          names:
+            - "action.5"
+        publish:
+          topic: /gripper_position_controller/commands
+          type: std_msgs/msg/Float64MultiArray
+          layout: flat
+          qos:
+            reliability: best_effort
+            history: keep_last
+            depth: 10
+          strategy:
+            mode: nearest
+            tolerance_ms: 500
+        safety_behavior: hold
 
   # ============================================
   # Teleoperation Configuration (for human teleop mode)

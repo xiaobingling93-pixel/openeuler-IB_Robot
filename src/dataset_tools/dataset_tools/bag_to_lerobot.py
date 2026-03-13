@@ -11,7 +11,7 @@ inference. That keeps train/serve paths aligned and minimizes skew.
 
 The conversion pipeline:
 
-1) Load a "contract" describing topics/types/QoS/rate and feature shapes.
+1) Load contract from robot_config.yaml (Single Source of Truth)
 2) Scan a bag once; decode each contract topic using shared `decode_value`.
 3) Select timestamps per a policy (`contract` / `bag` / `header`).
 4) Resample each stream at the contract rate and assemble frames.
@@ -19,13 +19,10 @@ The conversion pipeline:
 
 Dependencies
 ------------
-Only two shared modules (keep it unified with live inference):
+Shared modules (keep it unified with live inference):
 
 - `robot_config.contract_utils`:
     `load_contract`, `iter_specs`, `feature_from_spec`
-- `rosetta.common.processing_utils`:
-    `decode_value`, `resample`, `stamp_from_header_ns`,
-    `_nearest_resize_rgb`, `_coerce_to_uint8_rgb`, `zero_pad`
 
 Command-line usage
 ------------------
@@ -33,17 +30,21 @@ Convert a single bag:
 
     $ python bag_to_lerobot.py \\
         --bag /path/to/bag_dir \\
-        --contract /path/to/contract.yaml \\
+        --robot-config /path/to/robot_config.yaml \\
         --out /path/to/out_root
 
 Convert multiple bags:
 
     $ python bag_to_lerobot.py \\
         --bags /bag/epi1 /bag/epi2 \\
-        --contract /path/to/contract.yaml \\
+        --robot-config /path/to/robot_config.yaml \\
         --out /path/to/out_root
 
 Options of note:
+
+- `--robot-config`
+    Path to robot_config.yaml. The contract section is used as the
+    Single Source of Truth for observations and actions.
 
 - `--timestamp {contract,bag,header}`
     How to pick per-message timestamps before resampling:
@@ -69,7 +70,6 @@ Notes
   float ranges, and nearest-neighbor resize.
 - Feature dicts are built directly from `feature_from_spec()` so train-time and
   serve-time shapes match exactly.
-
 """
 
 from __future__ import annotations
@@ -95,12 +95,13 @@ from robot_config.contract_utils import (
     iter_specs,
     feature_from_spec,
     contract_fingerprint,
+    Contract,
 )
 from robot_config.contract_utils import (
     decode_value,
     resample,
     stamp_from_header_ns,
-    zero_pad as make_zero_pad,  # alias to avoid name clash with dict var
+    zero_pad as make_zero_pad,
 )
 
 # Import decoders to register them
@@ -189,17 +190,20 @@ def _plan_streams(
             )
             continue
         rt = sv.ros_type or tmap[sv.topic]
-        
+
         # Create unique key for multiple observation.state specs and action specs
         if sv.key == "observation.state":
-            unique_key = f"{sv.key}_{sv.topic.replace('/', '_')}"
+            # Remove leading underscore from topic replacement
+            topic_suffix = sv.topic.replace('/', '_').lstrip('_')
+            unique_key = f"{sv.key}_{topic_suffix}" if topic_suffix else sv.key
         elif sv.is_action:
             # For action specs, we need to check if there are multiple specs with the same key
             # This will be handled later in the consolidation logic
-            unique_key = f"{sv.key}_{sv.topic.replace('/', '_')}"
+            topic_suffix = sv.topic.replace('/', '_').lstrip('_')
+            unique_key = f"{sv.key}_{topic_suffix}" if topic_suffix else sv.key
         else:
             unique_key = sv.key
-            
+
         streams[unique_key] = _Stream(spec=sv, ros_type=rt, ts=[], val=[])
         by_topic.setdefault(sv.topic, []).append(unique_key)
     if not streams:
@@ -210,10 +214,142 @@ def _plan_streams(
 # ---------------------------------------------------------------------------
 
 
+def _load_contract_from_robot_config(robot_config_path: Path) -> Contract:
+    """Load contract from robot_config.yaml (Single Source of Truth).
+
+    Parameters
+    ----------
+    robot_config_path : Path
+        Path to robot_config.yaml. The contract section will be used directly.
+
+    Returns
+    -------
+    Contract
+        Loaded contract object.
+
+    Raises
+    ------
+    ValueError
+        If robot_config_path is invalid or missing contract section.
+    """
+    robot_config_data = yaml.safe_load(
+        Path(robot_config_path).read_text(encoding="utf-8")
+    )
+
+    if "robot" in robot_config_data:
+        robot_config_data = robot_config_data["robot"]
+
+    contract_data = robot_config_data.get("contract")
+    if contract_data is None:
+        raise ValueError(
+            f"No 'contract' section found in {robot_config_path}. "
+            f"Please add a 'contract' section with observations and actions."
+        )
+
+    print(f"[bag_to_lerobot] Loading contract from robot_config: {robot_config_path}")
+
+    contract_dict = {
+        'name': robot_config_data.get('name', 'robot'),
+        'version': 1,
+        'robot_type': robot_config_data.get('robot_type'),
+        'rate_hz': contract_data.get('rate_hz', 20),
+        'max_duration_s': contract_data.get('max_duration_s', 90.0),
+        'observations': contract_data.get('observations', []),
+        'actions': contract_data.get('actions', []),
+        'recording': contract_data.get('recording', {}),
+        'process': contract_data.get('process', {}),
+    }
+
+    print(f"[bag_to_lerobot]   Observations: {len(contract_dict['observations'])}")
+    for obs in contract_dict['observations']:
+        print(f"[bag_to_lerobot]     - {obs.get('key')} <- {obs.get('topic')}")
+    print(f"[bag_to_lerobot]   Actions: {len(contract_dict['actions'])}")
+    for act in contract_dict['actions']:
+        pub = act.get('publish', {})
+        print(f"[bag_to_lerobot]     - {act.get('key')} -> {pub.get('topic', 'N/A')}")
+
+    return _dict_to_contract(contract_dict)
+
+
+def _dict_to_contract(contract_dict: Dict[str, Any]) -> Contract:
+    """Convert a contract dictionary to a Contract dataclass.
+
+    This is similar to load_contract but works with an in-memory dict
+    instead of reading from a file.
+    """
+    def _as_align(d: Optional[Dict[str, Any]]):
+        if not d:
+            return None
+        from robot_config.contract_utils import AlignSpec
+        return AlignSpec(
+            strategy=str(d.get("strategy", "hold")).lower(),
+            tol_ms=int(d.get("tol_ms", 0)),
+            stamp=str(d.get("stamp", "receive")).lower(),
+        )
+
+    def _obs(it: Dict[str, Any]):
+        from robot_config.contract_utils import ObservationSpec
+        return ObservationSpec(
+            key=it["key"],
+            topic=it["topic"],
+            type=it["type"],
+            selector=it.get("selector"),
+            image=it.get("image"),
+            align=_as_align(it.get("align")),
+            qos=it.get("qos"),
+        )
+
+    def _act(it: Dict[str, Any]):
+        from robot_config.contract_utils import ActionSpec
+        pub = it["publish"]
+        sb = str(it.get("safety_behavior", "zeros")).lower().strip()
+        if sb not in ("zeros", "hold"):
+            sb = "zeros"
+        return ActionSpec(
+            key=it["key"],
+            publish_topic=pub["topic"],
+            type=pub["type"],
+            selector=it.get("selector"),
+            from_tensor=it.get("from_tensor"),
+            publish_qos=pub.get("qos"),
+            publish_strategy=pub.get("strategy"),
+            safety_behavior=sb,
+        )
+
+    def _task(it: Dict[str, Any]):
+        from robot_config.contract_utils import TaskSpec
+        return TaskSpec(
+            key=it.get("key", it["topic"]),
+            topic=it["topic"],
+            type=it["type"],
+            qos=it.get("qos"),
+        )
+
+    obs = [_obs(it) for it in (contract_dict.get("observations") or [])]
+    acts = [_act(it) for it in (contract_dict.get("actions") or [])]
+    tks = [_task(it) for it in (contract_dict.get("tasks") or [])]
+    rec = contract_dict.get("recording") or {}
+    proc = contract_dict.get("process") or {}
+
+    return Contract(
+        name=contract_dict.get("name", "contract"),
+        version=int(contract_dict.get("version", 1)),
+        rate_hz=float(contract_dict.get("rate_hz", contract_dict.get("fps", 20.0))),
+        max_duration_s=float(contract_dict.get("max_duration_s", 30.0)),
+        observations=obs,
+        actions=acts,
+        tasks=tks,
+        recording=rec,
+        robot_type=contract_dict.get("robot_type"),
+        timestamp_source=str(contract_dict.get("timestamp_source", "receive")).lower(),
+        process=proc,
+    )
+
+
 def export_bags_to_lerobot(
     bag_dirs: List[Path],
-    contract_path: Path,
-    out_root: Path,
+    robot_config_path: Path,
+    out_root: Path = Path("output"),
     repo_id: str = "rosbag_v30",
     use_videos: bool = True,
     image_writer_threads: int = 4,
@@ -221,16 +357,18 @@ def export_bags_to_lerobot(
     chunk_size: int = 1000,
     data_mb: int = 100,
     video_mb: int = 500,
-    timestamp_source: str = "contract",  # 'contract' | 'receive' | 'header'
+    timestamp_source: str = "contract",
 ) -> None:
     """Convert bag directories into a LeRobot v3 dataset under `out_root`.
+
+    Uses robot_config.yaml as the Single Source of Truth for contract.
 
     Parameters
     ----------
     bag_dirs : list[pathlib.Path]
         One or more bag directories (episodes) to convert.
-    contract_path : pathlib.Path
-        Path to the YAML/JSON contract. Must specify `rate_hz` and specs.
+    robot_config_path : pathlib.Path
+        Path to robot_config.yaml. The contract section will be used.
     out_root : pathlib.Path
         Root directory where the LeRobot dataset will be created/updated.
     repo_id : str, default "rosbag_v30"
@@ -239,9 +377,6 @@ def export_bags_to_lerobot(
         If True, store videos; otherwise store per-frame PNG images.
     image_writer_threads : int, default 4
         Worker threads per process for image writing.
-            The optimal number of processes and threads depends on your computer capabilities.
-            Lerobot advises to use 4 threads per camera with 0 processes. If the fps is not stable, try to increase or lower
-            the number of threads. If it is still not stable, try to use 1 subprocess, or more.
     image_writer_processes : int, default 0
     chunk_size : int, default 1000
         Max number of frames per Parquet/video chunk.
@@ -250,11 +385,7 @@ def export_bags_to_lerobot(
     video_mb : int, default 500
         Target video file size in MB per chunk.
     timestamp_source : {"contract","receive","header"}, default "contract"
-        Timestamp selection policy per decoded message:
-        - "contract": Use bag time, unless spec.stamp_src == "header"
-                      and a valid header stamp exists.
-        - "receive":  Always use bag receive time.
-        - "header":   Prefer header stamp; fall back to bag receive time.
+        Timestamp selection policy per decoded message.
 
     Raises
     ------
@@ -262,15 +393,8 @@ def export_bags_to_lerobot(
         If contract `rate_hz` is invalid (<= 0).
     RuntimeError
         If a bag contains no usable/decodable messages.
-
-    Notes
-    -----
-    - Feature shapes/dtypes are built from `feature_from_spec(..., use_videos)`,
-      so your exported dataset matches online inputs exactly.
-    - Image coercion uses shared utilities for consistent preprocessing.
     """
-    # Contract + specs
-    contract = load_contract(contract_path)
+    contract = _load_contract_from_robot_config(robot_config_path)
     fps = int(contract.rate_hz)
     if fps <= 0:
         raise ValueError("Contract rate_hz must be > 0")
@@ -282,14 +406,14 @@ def export_bags_to_lerobot(
     primary_image_key: Optional[str] = None
     state_specs = []  # Track multiple observation.state specs
     action_specs_by_key: Dict[str, List[Any]] = {}  # Track multiple action specs by key
-    
+
     for sv in specs:
         # Handle multiple observation.state specs
         if sv.key == "observation.state":
             state_specs.append(sv)
             # Don't add to features yet - we'll consolidate them
             continue
-            
+
         # Handle action specs
         if sv.is_action:
             if sv.key not in action_specs_by_key:
@@ -297,10 +421,10 @@ def export_bags_to_lerobot(
             action_specs_by_key[sv.key].append(sv)
             # Don't add to features yet - we'll consolidate them
             continue
-            
+
         # Process other specs normally
         k, ft, is_img = feature_from_spec(sv, use_videos)
-            
+
         # Ensure task.* specs are treated as per-frame strings even if the
         # underlying helper doesn't special-case them yet.
         if str(k).startswith(
@@ -317,7 +441,7 @@ def export_bags_to_lerobot(
             features[k] = ft
         if is_img and primary_image_key is None:
             primary_image_key = sv.key
-    
+
     # Consolidate multiple observation.state specs into a single feature
     if state_specs:
         all_names = []
@@ -325,13 +449,13 @@ def export_bags_to_lerobot(
         for sv in state_specs:
             all_names.extend(sv.names)
             total_shape += len(sv.names)
-        
+
         features["observation.state"] = {
             "dtype": "float32",
             "shape": (total_shape,),
             "names": all_names
         }
-    
+
     # Consolidate multiple action specs with the same key into a single feature
     for action_key, action_specs in action_specs_by_key.items():
         if len(action_specs) > 1:
@@ -341,7 +465,7 @@ def export_bags_to_lerobot(
             for sv in action_specs:
                 all_names.extend(sv.names)
                 total_shape += len(sv.names)
-            
+
             features[action_key] = {
                 "dtype": "float32",
                 "shape": (total_shape,),
@@ -352,7 +476,7 @@ def export_bags_to_lerobot(
             sv = action_specs[0]
             k, ft, _ = feature_from_spec(sv, use_videos)
             features[k] = ft
-    
+
     # Mark depth videos in features metadata before dataset creation
     for key, feature in features.items():
         if key.endswith(".depth") and feature.get("dtype") == "video":
@@ -372,7 +496,7 @@ def export_bags_to_lerobot(
         image_writer_threads=image_writer_threads,
         batch_encoding_size=1,
     )
-    
+
     # Persist the contract fingerprint into info.json so training can validate & propagate it
     try:
         fp = contract_fingerprint(contract)
@@ -384,7 +508,7 @@ def export_bags_to_lerobot(
         data_files_size_in_mb=data_mb,
         video_files_size_in_mb=video_mb,
     )
-    
+
 
     # Precompute zero pads + shapes for fast frame assembly.
     zero_pad_map = {k: make_zero_pad(ft) for k, ft in features.items()}
@@ -429,7 +553,7 @@ def export_bags_to_lerobot(
 
         # Plan once - handle multiple observation.state specs and action specs
         streams, by_topic = _plan_streams(specs, tmap)
-        
+
         # Create consolidated observation.state stream if we have multiple state specs
         if state_specs:
             # Find all observation.state streams
@@ -525,18 +649,19 @@ def export_bags_to_lerobot(
         # Write frames
         for i in range(n_ticks):
             frame: Dict[str, Any] = {}
-            
+
             # Handle consolidated observation.state by concatenating multiple state streams first
             if "observation.state" in features and state_specs:
                 # Concatenate all observation.state values from different topics
                 state_values = []
                 for sv in state_specs:
-                    unique_key = f"{sv.key}_{sv.topic.replace('/', '_')}"
+                    topic_suffix = sv.topic.replace('/', '_').lstrip('_')
+                    unique_key = f"{sv.key}_{topic_suffix}" if topic_suffix else sv.key
                     stream_val = resampled.get(unique_key, [None] * n_ticks)[i]
                     if stream_val is not None:
                         val_array = np.asarray(stream_val, dtype=np.float32).reshape(-1)
                         state_values.append(val_array)
-                
+
                 if state_values:
                     # Concatenate all state values
                     concatenated_state = np.concatenate(state_values)
@@ -544,14 +669,15 @@ def export_bags_to_lerobot(
                 else:
                     # Use zero padding if no state values available
                     frame["observation.state"] = zero_pad_map["observation.state"]
-            
+
             # Handle consolidated action specs by concatenating multiple action streams
             for action_key, action_specs in action_specs_by_key.items():
                 if action_key in features:
                     # Concatenate all action values from different topics
                     action_values = []
                     for sv in action_specs:
-                        unique_key = f"{sv.key}_{sv.topic.replace('/', '_')}"
+                        topic_suffix = sv.topic.replace('/', '_').lstrip('_')
+                        unique_key = f"{sv.key}_{topic_suffix}" if topic_suffix else sv.key
                         stream_val = resampled.get(unique_key, [None] * n_ticks)[i]
                         if stream_val is not None:
                             val_array = np.asarray(stream_val, dtype=np.float32).reshape(-1)
@@ -625,7 +751,7 @@ def export_bags_to_lerobot(
             f"  → saved {n_ticks} frames @ {int(round(fps))} FPS  | decoded_msgs={decoded_msgs}"
         )
 
-    
+
     print(f"\n[OK] Dataset root: {ds.root.resolve()}")
     if use_videos:
         print("  - videos/<image_key>/chunk-*/file-*.mp4")
@@ -642,11 +768,23 @@ def export_bags_to_lerobot(
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line args for bag → LeRobot conversion."""
-    ap = argparse.ArgumentParser("ROS2 bag → LeRobot v3 (using rosetta.common.*)")
+    ap = argparse.ArgumentParser(
+        "ROS2 bag → LeRobot v3",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Example:
+    python bag_to_lerobot.py --bag /path/to/bag --robot-config /path/to/robot_config.yaml --out /path/to/out
+""",
+    )
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--bag", help="Path to a single bag directory (episode)")
     g.add_argument("--bags", nargs="+", help="Paths to multiple bag directories")
-    ap.add_argument("--contract", required=True, help="Path to YAML contract")
+
+    ap.add_argument(
+        "--robot-config",
+        required=True,
+        help="Path to robot_config.yaml (Single Source of Truth)",
+    )
     ap.add_argument("--out", required=True, help="Output dataset root")
     ap.add_argument("--repo-id", default="rosbag_v30", help="repo_id metadata")
     ap.add_argument(
@@ -675,9 +813,10 @@ def main() -> None:
     """CLI entry point for batch conversion of ROS 2 bags to LeRobot."""
     args = parse_args()
     bag_dirs = [Path(args.bag)] if args.bag else [Path(p) for p in args.bags]
+
     export_bags_to_lerobot(
         bag_dirs=bag_dirs,
-        contract_path=Path(args.contract),
+        robot_config_path=Path(args.robot_config),
         out_root=Path(args.out),
         repo_id=args.repo_id,
         use_videos=not args.no_videos,
