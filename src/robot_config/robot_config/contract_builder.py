@@ -92,39 +92,29 @@ def validate_control_mode_config(robot_config: Dict, control_mode: str) -> None:
                 f"but it's not defined in robot_config.models"
             )
 
-        # Check 2.2: Observation sources exist
-        for obs_spec in inference_config.get('observations', []):
-            source = obs_spec.get('source')
-            key = obs_spec.get('key')
-
-            if not source or not key:
-                errors.append(
-                    f"Invalid observation spec in mode '{control_mode}': "
-                    f"missing 'source' or 'key'"
-                )
-                continue
-
-            if source == 'joint_states':
-                # Joint states always available (from ros2_control)
-                continue
-
-            # Check if peripheral exists
-            peripheral = next(
-                (p for p in robot_config.get('peripherals', []) if p['name'] == source),
-                None
+        # Check 2.2: Contract observations exist (Single Source of Truth)
+        contract_config = robot_config.get('contract', {})
+        observations = contract_config.get('observations', [])
+        
+        if not observations:
+            errors.append(
+                f"No observations defined in contract section. "
+                f"Please add 'contract.observations' to robot_config.yaml"
             )
-            if not peripheral:
-                errors.append(
-                    f"Control mode '{control_mode}' requires observation '{source}' "
-                    f"but peripheral '{source}' is not defined in robot_config.peripherals"
-                )
-            else:
-                # Warning: Check peripheral type
-                if peripheral.get('type') != 'camera':
-                    warnings.append(
-                        f"Observation source '{source}' is not a camera "
-                        f"(type={peripheral.get('type')})"
+        else:
+            # Validate observation peripheral references
+            for obs_spec in observations:
+                peripheral_name = obs_spec.get('peripheral')
+                if peripheral_name:
+                    peripheral = next(
+                        (p for p in robot_config.get('peripherals', []) if p['name'] == peripheral_name),
+                        None
                     )
+                    if not peripheral:
+                        errors.append(
+                            f"Observation '{obs_spec.get('key')}' references peripheral '{peripheral_name}' "
+                            f"but it's not defined in robot_config.peripherals"
+                        )
 
     # Check 3: Executor configuration
     executor_config = mode_config.get('executor', {})
@@ -165,10 +155,8 @@ def validate_control_mode_config(robot_config: Dict, control_mode: str) -> None:
 def synthesize_contract(robot_config: Dict, control_mode: str) -> Dict[str, Any]:
     """Synthesize inference contract from robot configuration.
 
-    This function automatically builds the contract by:
-    1. Collecting observation topics from peripherals
-    2. Mapping joint names from robot joints
-    3. Configuring action space from controller joints
+    This function automatically builds the contract by using the contract section
+    from robot_config.yaml as the Single Source of Truth for observations and actions.
 
     Args:
         robot_config: Full robot configuration dict
@@ -207,143 +195,37 @@ def synthesize_contract(robot_config: Dict, control_mode: str) -> Dict[str, Any]
 
     model_config = models[model_name]
 
-    # Step 4: Build observation mapping from peripherals
-    # Rosetta expects observations as a LIST, not a dict
-    observations = []
-    for obs_spec in inference_config.get('observations', []):
-        source = obs_spec['source']
-        key = obs_spec['key']
-        
-        # Ensure key follows LeRobot convention
-        lerobot_key = f"observation.{key}" if not key.startswith('observation.') else key
-
-        if source == 'joint_states':
-            # Joint positions from /joint_states
-            joint_names = robot_config['joints']['all']
-            # Convert to selector format (position.1, position.2, etc.)
-            joint_selector_names = [f"position.{name}" for name in joint_names]
-            obs_entry = {
-                'key': lerobot_key,
-                'topic': '/joint_states',
-                'type': 'sensor_msgs/msg/JointState',
-                'selector': {
-                    'names': joint_selector_names
-                },
-                'align': {
-                    'strategy': 'hold',
-                    'stamp': 'header',
-                    'tol_ms': 1500
-                },
-                'qos': {
-                    'reliability': 'best_effort',
-                    'history': 'keep_last',
-                    'depth': 50
-                }
-            }
-            observations.append(obs_entry)
-            print(f"[robot_config] Observation: {lerobot_key} ← /joint_states ({len(joint_names)} joints)")
-        else:
-            # Camera observations from peripherals
-            peripheral = next(
-                (p for p in robot_config['peripherals'] if p['name'] == source),
-                None
-            )
-            if peripheral:
-                # Extract dimensions from peripheral config, fallback to LeRobot defaults
-                width = peripheral.get('width', 640)
-                height = peripheral.get('height', 480)
-                
-                obs_entry = {
-                    'key': lerobot_key,
-                    'topic': f'/camera/{source}/image_raw',
-                    'type': 'sensor_msgs/msg/Image',
-                    'image': {
-                        'resize': [height, width]  # [H, W] format
-                    },
-                    'align': {
-                        'strategy': 'hold',
-                        'stamp': 'header',
-                        'tol_ms': 1500
-                    },
-                    'qos': {
-                        'reliability': 'best_effort',
-                        'history': 'keep_last',
-                        'depth': 10
-                    }
-                }
-                observations.append(obs_entry)
-                print(f"[robot_config] Observation: {lerobot_key} ← {obs_entry['topic']}")
-
-    # Step 5: Build action mapping from controller joints
-    actions = []
+    # Step 4: Get contract configuration (Single Source of Truth)
+    contract_config = robot_config.get('contract', {})
     
-    for ctrl_name in mode_config['controllers']:
-        if 'position_controller' not in ctrl_name:
-            continue
-            
-        # Determine joints for this specific controller
-        current_ctrl_joints = []
-        if 'arm' in ctrl_name:
-            current_ctrl_joints = robot_config['joints']['arm']
-        elif 'gripper' in ctrl_name:
-            current_ctrl_joints = robot_config['joints']['gripper']
-        elif 'all' in ctrl_name:
-            current_ctrl_joints = robot_config['joints']['all']
-        
-        if not current_ctrl_joints:
-            continue
+    # Use contract.observations directly (Single Source of Truth)
+    observations = contract_config.get('observations', [])
+    if not observations:
+        print(f"[robot_config] ERROR: No observations defined in contract section")
+        return None
+    
+    print(f"[robot_config] Observations from contract section (Single Source of Truth):")
+    for obs in observations:
+        print(f"[robot_config]   - {obs.get('key')} ← {obs.get('topic')}")
 
-        # Convert to selector format (position.1, position.2, etc.)
-        joint_selector_names = [f"position.{name}" for name in current_ctrl_joints]
-        
-        action_entry = {
-            'key': f"action_{ctrl_name}",
-            'selector': {
-                'names': joint_selector_names
-            },
-            'publish': {
-                'topic': f"/{ctrl_name}/commands",
-                'type': 'std_msgs/msg/Float64MultiArray',
-                'layout': 'flat',
-                'qos': {
-                    'reliability': 'best_effort',
-                    'history': 'keep_last',
-                    'depth': 10
-                },
-                'strategy': {
-                    'mode': 'nearest',
-                    'tolerance_ms': 500
-                }
-            },
-            'safety_behavior': 'hold'
-        }
-        actions.append(action_entry)
-        print(f"[robot_config] Action mapping: {ctrl_name} ({len(current_ctrl_joints)} joints) → {action_entry['publish']['topic']}")
-
-    # Fallback if no controllers found
+    # Use contract.actions directly (Single Source of Truth)
+    actions = contract_config.get('actions', [])
     if not actions:
-        all_joints = robot_config['joints']['all']
-        joint_selector_names = [f"position.{name}" for name in all_joints]
-        actions = [{
-            'key': 'action',
-            'selector': {'names': joint_selector_names},
-            'publish': {
-                'topic': '/arm_position_controller/commands',
-                'type': 'std_msgs/msg/Float64MultiArray',
-                'layout': 'flat',
-                'qos': {'reliability': 'best_effort', 'history': 'keep_last', 'depth': 10},
-                'strategy': {'mode': 'nearest', 'tolerance_ms': 500}
-            },
-            'safety_behavior': 'hold'
-        }]
+        print(f"[robot_config] ERROR: No actions defined in contract section")
+        return None
+    
+    print(f"[robot_config] Actions from contract section (Single Source of Truth):")
+    for act in actions:
+        pub = act.get('publish', {})
+        print(f"[robot_config]   - {act.get('key')} → {pub.get('topic', 'N/A')}")
 
-    # Step 6: Assemble contract with rosetta-compliant structure
+    # Step 5: Assemble contract with rosetta-compliant structure
     contract = {
         'name': f"{robot_config['name']}_{control_mode}",
         'version': 1,
         'robot_type': robot_config.get('robot_type', 'so_101'),
-        'rate_hz': 20,
-        'max_duration_s': 90.0,
+        'rate_hz': contract_config.get('rate_hz', 20),
+        'max_duration_s': contract_config.get('max_duration_s', 90.0),
         'model': {
             'policy_type': model_config.get('policy_type', 'act'),
             'path': model_config['path']
@@ -365,9 +247,7 @@ def synthesize_contract(robot_config: Dict, control_mode: str) -> Dict[str, Any]
 
     print(f"[robot_config] ✓ Contract synthesis SUCCESS")
     print(f"[robot_config]   Observations: {len(observations)}")
-    
-    total_joints = sum(len(a['selector']['names']) for a in actions)
-    print(f"[robot_config]   Actions: {total_joints} joints")
+    print(f"[robot_config]   Actions: {len(actions)}")
     return contract
 
 
