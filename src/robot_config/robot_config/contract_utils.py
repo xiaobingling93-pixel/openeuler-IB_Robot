@@ -1,6 +1,5 @@
-# rosetta/common/contract_utils.py
 # -----------------------------------------------------------------------------
-# Contract schema + loader + runtime processing.
+# Contract schema + runtime processing.
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 import hashlib
 import json
 import numpy as np
-import yaml
 from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
@@ -105,66 +103,6 @@ def _as_align(d: Optional[Dict[str, Any]]) -> Optional[AlignSpec]:
         strategy=str(d.get("strategy", "hold")).lower(),
         tol_ms=int(d.get("tol_ms", 0)),
         stamp=str(d.get("stamp", "receive")).lower(),
-    )
-
-
-def load_contract(path: Path | str) -> Contract:
-    """Load + normalize contract YAML into dataclasses."""
-    d = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-
-    def _obs(it: Dict[str, Any]) -> ObservationSpec:
-        return ObservationSpec(
-            key=it["key"],
-            topic=it["topic"],
-            type=it["type"],
-            selector=it.get("selector"),
-            image=it.get("image"),
-            align=_as_align(it.get("align")),
-            qos=it.get("qos"),
-        )
-
-    def _act(it: Dict[str, Any]) -> ActionSpec:
-        pub = it["publish"]
-        sb = str(it.get("safety_behavior", "zeros")).lower().strip()
-        if sb not in ("zeros", "hold"):
-            sb = "zeros"
-        return ActionSpec(
-            key=it["key"],
-            publish_topic=pub["topic"],
-            type=pub["type"],
-            selector=it.get("selector"),
-            from_tensor=it.get("from_tensor"),
-            publish_qos=pub.get("qos"),
-            publish_strategy=pub.get("strategy"),
-            safety_behavior=sb,
-        )
-
-    def _task(it: Dict[str, Any]) -> TaskSpec:
-        return TaskSpec(
-            key=it.get("key", it["topic"]),
-            topic=it["topic"],
-            type=it["type"],
-            qos=it.get("qos"),
-        )
-
-    obs = [_obs(it) for it in (d.get("observations") or [])]
-    acts = [_act(it) for it in (d.get("actions") or [])]
-    tks = [_task(it) for it in (d.get("tasks") or [])]
-    rec = d.get("recording") or {}
-    proc = d.get("process") or {}
-
-    return Contract(
-        name=d.get("name", "contract"),
-        version=int(d.get("version", 1)),
-        rate_hz=float(d.get("rate_hz", d.get("fps", 20.0))),
-        max_duration_s=float(d.get("max_duration_s", 30.0)),
-        observations=obs,
-        actions=acts,
-        tasks=tks,
-        recording=rec,
-        robot_type=d.get("robot_type"),
-        timestamp_source=str(d.get("timestamp_source", "receive")).lower(),
-        process=proc,
     )
 
 

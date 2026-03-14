@@ -15,11 +15,6 @@ import os
 from launch_ros.actions import Node
 
 from robot_config.utils import parse_bool, prepare_lerobot_env
-from robot_config.contract_builder import (
-    synthesize_contract,
-    get_contract_output_path,
-    save_contract,
-)
 
 
 def generate_inference_node(robot_config, control_mode, use_sim=False):
@@ -82,16 +77,11 @@ def generate_monolithic_inference_node(robot_config, control_mode, use_sim=False
     print(f"[robot_config] Control mode: {control_mode}")
     print(f"[robot_config] Execution mode: {execution_mode}")
 
-    contract = synthesize_contract(robot_config, control_mode)
-    if not contract:
-        print(f"[robot_config] ERROR: Failed to synthesize contract")
-        return None
-
-    contract_path = get_contract_output_path(robot_config, control_mode)
-    try:
-        save_contract(contract, contract_path)
-    except Exception as e:
-        print(f"[robot_config] WARNING: Could not save contract: {e}")
+    robot_config_path = robot_config.get('_config_path', '')
+    if not robot_config_path:
+        raise ValueError(
+            "robot_config dict is missing '_config_path'. Ensure loader.py injects this correctly."
+        )
 
     model_name = inference_config["model"]
     models = robot_config.get("models", {})
@@ -104,7 +94,7 @@ def generate_monolithic_inference_node(robot_config, control_mode, use_sim=False
     print(f"[robot_config] Model: {model_name}")
     print(f"[robot_config]   Path: {model_config['path']}")
     print(f"[robot_config]   Policy type: {model_config.get('policy_type', 'unknown')}")
-    print(f"[robot_config]   Contract: {contract_path}")
+    print(f"[robot_config]   Robot config: {robot_config_path}")
 
     env = prepare_lerobot_env()
     if env.get("PYTHONPATH"):
@@ -112,7 +102,7 @@ def generate_monolithic_inference_node(robot_config, control_mode, use_sim=False
 
     node_params = {
         "checkpoint": model_config["path"],
-        "contract_path": str(contract_path),
+        "robot_config_path": str(robot_config_path),
         "passive_mode": True,
         "device": "auto",
         "use_sim_time": is_sim,
@@ -161,16 +151,11 @@ def generate_distributed_inference_nodes(robot_config, control_mode, use_sim=Fal
     print(f"[robot_config] Control mode: {control_mode}")
     print(f"[robot_config] Architecture: Edge Proxy + Cloud Inference")
 
-    contract = synthesize_contract(robot_config, control_mode)
-    if not contract:
-        print(f"[robot_config] ERROR: Failed to synthesize contract")
-        return None
-
-    contract_path = get_contract_output_path(robot_config, control_mode)
-    try:
-        save_contract(contract, contract_path)
-    except Exception as e:
-        print(f"[robot_config] WARNING: Could not save contract: {e}")
+    robot_config_path = robot_config.get('_config_path', '')
+    if not robot_config_path:
+        raise ValueError(
+            "robot_config dict is missing '_config_path'. Ensure loader.py injects this correctly."
+        )
 
     model_name = inference_config["model"]
     models = robot_config.get("models", {})
@@ -184,7 +169,7 @@ def generate_distributed_inference_nodes(robot_config, control_mode, use_sim=Fal
     print(f"[robot_config] Model: {model_name}")
     print(f"[robot_config]   Path: {policy_path}")
     print(f"[robot_config]   Policy type: {model_config.get('policy_type', 'unknown')}")
-    print(f"[robot_config]   Contract: {contract_path}")
+    print(f"[robot_config]   Robot config: {robot_config_path}")
 
     env = prepare_lerobot_env()
 
@@ -192,7 +177,7 @@ def generate_distributed_inference_nodes(robot_config, control_mode, use_sim=Fal
 
     edge_node_params = {
         "checkpoint": policy_path,
-        "contract_path": str(contract_path),
+        "robot_config_path": str(robot_config_path),
         "passive_mode": True,
         "device": "auto",
         "use_sim_time": is_sim,
@@ -256,7 +241,11 @@ def generate_action_dispatcher_node(robot_config, control_mode, use_sim=False):
     """
     is_sim = parse_bool(use_sim, default=False)
 
-    contract_path = get_contract_output_path(robot_config, control_mode)
+    robot_config_path = robot_config.get('_config_path', '')
+    if not robot_config_path:
+        raise ValueError(
+            "robot_config dict is missing '_config_path'. Ensure loader.py injects this correctly."
+        )
 
     control_modes = robot_config.get("control_modes", {})
     mode_config = control_modes.get(control_mode, {})
@@ -306,7 +295,7 @@ def generate_action_dispatcher_node(robot_config, control_mode, use_sim=False):
                 "exhaustion_timeout": 2.0,
                 "joint_state_topic": "/joint_states",
                 "dispatch_action_topic": "/action_dispatch/dispatch_action",
-                "contract_path": str(contract_path),
+                "robot_config_path": str(robot_config_path),
                 "inference_action_server": action_server,
                 "inference_prompt": "",
                 "use_sim_time": is_sim,

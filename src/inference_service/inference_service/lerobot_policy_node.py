@@ -56,7 +56,6 @@ from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
 from ibrobot_msgs.action import DispatchInfer
 from ibrobot_msgs.msg import VariantsList
 from robot_config.contract_utils import (
-    load_contract,
     iter_specs,
     SpecView,
     feature_from_spec,
@@ -93,7 +92,7 @@ class _NodeConfig:
     model_type: str = "lerobot_policy"
     repo_id: Optional[str] = None
     checkpoint: Optional[str] = None
-    contract_path: Optional[str] = None
+    robot_config_path: Optional[str] = None
     device: str = "auto"
     frequency: float = 10.0
     use_header_time: bool = True
@@ -156,8 +155,8 @@ class LeRobotPolicyNode(Node):
         # Load model config first to get required inputs
         self._load_policy_config()
         
-        if self._config.contract_path:
-            self._load_contract(self._config.contract_path)
+        if self._config.robot_config_path:
+            self._load_contract(self._config.robot_config_path)
             self._setup_observation_subscriptions()
         
         if self._config.execution_mode == "distributed":
@@ -203,13 +202,14 @@ class LeRobotPolicyNode(Node):
         for key in self._required_inputs:
             self.get_logger().info(f"  - {key}")
     
-    def _load_contract(self, contract_path: str):
-        """Load contract from YAML file and filter by model's input_features."""
-        p = Path(contract_path)
+    def _load_contract(self, robot_config_path: str):
+        """Load contract from robot_config YAML file and filter by model's input_features."""
+        p = Path(robot_config_path)
         if not p.exists():
-            raise RuntimeError(f"Contract file not found: {contract_path}")
+            raise RuntimeError(f"Robot config file not found: {robot_config_path}")
         
-        self._contract = load_contract(contract_path)
+        from robot_config.loader import load_robot_config
+        self._contract = load_robot_config(robot_config_path).to_contract()
         
         # Get all observation specs from contract
         all_obs_specs = [s for s in iter_specs(self._contract) if not s.is_action]
@@ -652,7 +652,7 @@ def main() -> None:
             "model_type",
             "repo_id",
             "checkpoint",
-            "contract_path",
+            "robot_config_path",
             "device",
             "frequency",
             "use_header_time",
@@ -669,7 +669,7 @@ def main() -> None:
                 default = "/preprocessed/batch"
             elif p == "cloud_result_topic":
                 default = "/inference/action"
-            elif p in ["repo_id", "checkpoint", "contract_path"]:
+            elif p in ["repo_id", "checkpoint", "robot_config_path"]:
                 default = ""
             elif p == "device":
                 default = "auto"
@@ -691,7 +691,7 @@ def main() -> None:
                 "model_type",
                 "repo_id",
                 "checkpoint",
-                "contract_path",
+                "robot_config_path",
             ]
         }
         config["device"] = temp_node.get_parameter("device").value
