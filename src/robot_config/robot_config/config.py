@@ -129,3 +129,88 @@ class RobotConfig:
     def get_all_cameras(self) -> List[CameraConfig]:
         """Get all camera configurations."""
         return [p for p in self.peripherals if isinstance(p, CameraConfig)]
+
+    def to_contract(self) -> "Contract":
+        """Generate a Contract dataclass directly from this robot_config.
+
+        This establishes RobotConfig as the Single Source of Truth for I/O mappings.
+        """
+        from robot_config.contract_utils import (
+            Contract,
+            ObservationSpec,
+            ActionSpec,
+            TaskSpec,
+            AlignSpec,
+        )
+
+        def _as_align(d):
+            if not d:
+                return None
+            return AlignSpec(
+                strategy=str(d.get("strategy", "hold")).lower(),
+                tol_ms=int(d.get("tol_ms", 0)),
+                stamp=str(d.get("stamp", "receive")).lower(),
+            )
+
+        obs_specs = []
+        for obs in self.contract.observations:
+            # Resolve peripheral if referenced
+            image_meta = obs.image
+            topic_type = "sensor_msgs/msg/JointState"
+
+            if obs.peripheral:
+                cam = self.get_camera(obs.peripheral)
+                if cam:
+                    topic_type = "sensor_msgs/msg/Image"
+                    if not image_meta:
+                        image_meta = {"resize": [cam.height, cam.width], "encoding": cam.pixel_format}
+                else:
+                    topic_type = "sensor_msgs/msg/Image"
+
+            obs_specs.append(
+                ObservationSpec(
+                    key=obs.key,
+                    topic=obs.topic,
+                    type=topic_type,
+                    selector=obs.selector,
+                    image=image_meta,
+                    align=_as_align(obs.align),
+                    qos=obs.qos,
+                )
+            )
+
+        act_specs = []
+        for act in self.contract.actions:
+            pub = act.publish
+            sb = str(act.safety_behavior).lower().strip()
+            if sb not in ("zeros", "hold"):
+                sb = "zeros"
+            act_specs.append(
+                ActionSpec(
+                    key=act.key,
+                    publish_topic=pub.get("topic", ""),
+                    type=pub.get("type", ""),
+                    selector=act.selector,
+                    from_tensor=act.from_tensor,
+                    publish_qos=pub.get("qos"),
+                    publish_strategy=pub.get("strategy"),
+                    safety_behavior=sb,
+                )
+            )
+
+        # Assuming no tasks for now as they are not explicitly typed in ContractExtensionConfig
+        task_specs = []
+
+        return Contract(
+            name=self.name,
+            version=1,
+            rate_hz=float(self.contract.rate_hz),
+            max_duration_s=float(self.contract.max_duration_s),
+            observations=obs_specs,
+            actions=act_specs,
+            tasks=task_specs,
+            recording={"storage": "mcap"},
+            robot_type=self.robot_type,
+            timestamp_source="receive",
+            process={},
+        )

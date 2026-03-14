@@ -84,7 +84,6 @@ from std_srvs.srv import Trigger
 import rosbag2_py
 
 from ibrobot_msgs.action import RecordEpisode
-from robot_config.contract_utils import load_contract
 from robot_config.contract_utils import qos_profile_from_dict
 
 
@@ -173,16 +172,17 @@ class EpisodeRecorderServer(Node):
         Raises
         ------
         RuntimeError
-            If the required `contract_path` parameter is missing.
+            If neither `robot_config_path` nor `contract_path` parameter is provided.
         """
         super().__init__("recorder_server")
 
         # Parameters
-        self.declare_parameter("contract_path", "")
+        self.declare_parameter("robot_config_path", "")
         self.declare_parameter("bag_base_dir", "/tmp/episodes")
         # Storage tuning (kept optional & conservative by default)
         self.declare_parameter("storage_preset_profile", "")  # e.g., "zstd_fast"
         self.declare_parameter("storage_config_uri", "")  # file:// or path
+        
         # Expand user home directory (~) to absolute path
         bag_base = self.get_parameter("bag_base_dir").get_parameter_value().string_value
         self._bag_base = Path(bag_base).expanduser().resolve()
@@ -190,14 +190,20 @@ class EpisodeRecorderServer(Node):
         # Ensure directory exists
         self._bag_base.mkdir(parents=True, exist_ok=True)
 
-        contract_path = (
-            self.get_parameter("contract_path").get_parameter_value().string_value
+        # Load contract from robot_config_path (Single Source of Truth)
+        robot_config_path = (
+            self.get_parameter("robot_config_path").get_parameter_value().string_value
         )
-        if not contract_path:
+        
+        if robot_config_path:
+            from robot_config.loader import load_robot_config
+            robot_config = load_robot_config(robot_config_path)
+            self._contract = robot_config.to_contract()
+            self.get_logger().info(f"Loaded contract from robot_config: {robot_config_path}")
+        else:
             raise RuntimeError(
-                "Parameter 'contract_path' is required (path to YAML contract)."
+                "The 'robot_config_path' parameter is required."
             )
-        self._contract = load_contract(contract_path)
 
         bag_base = self.get_parameter("bag_base_dir").get_parameter_value().string_value
         self._bag_base = Path(bag_base)

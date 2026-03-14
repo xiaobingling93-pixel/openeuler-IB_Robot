@@ -28,7 +28,7 @@ from std_srvs.srv import Empty
 
 from ibrobot_msgs.action import DispatchInfer
 from ibrobot_msgs.msg import VariantsList
-from robot_config.contract_utils import load_contract, iter_specs
+from robot_config.contract_utils import iter_specs
 from tensormsg.converter import TensorMsgConverter
 
 from .topic_executor import TopicExecutor
@@ -55,7 +55,7 @@ class ActionDispatcherNode(Node):
         self.declare_parameter('watermark_threshold', 20)
         self.declare_parameter('control_frequency', 100.0)
         self.declare_parameter('inference_action_server', '/act_inference_node/DispatchInfer')
-        self.declare_parameter('contract_path', '')
+        self.declare_parameter('robot_config_path', '')
         self.declare_parameter('joint_state_topic', '/joint_states')
         
         # Temporal smoothing parameters
@@ -103,17 +103,18 @@ class ActionDispatcherNode(Node):
             self.get_logger().info("Temporal smoothing DISABLED (using simple queue)")
 
         # 4. Load Contract (Essential for TopicExecutor mapping)
-        contract_path = self.get_parameter('contract_path').value
+        robot_config_path = self.get_parameter('robot_config_path').value
         self._action_specs = []
-        if contract_path:
+        if robot_config_path:
             try:
-                self._contract = load_contract(Path(contract_path))
+                from robot_config.loader import load_robot_config
+                self._contract = load_robot_config(robot_config_path).to_contract()
                 self._action_specs = [s for s in iter_specs(self._contract) if s.is_action]
-                self.get_logger().info(f"Loaded {len(self._action_specs)} action specs from contract")
+                self.get_logger().info(f"Loaded {len(self._action_specs)} action specs from robot_config")
             except Exception as e:
-                self.get_logger().error(f"Failed to load contract from {contract_path}: {e}")
+                self.get_logger().error(f"Failed to load contract from {robot_config_path}: {e}")
         else:
-            self.get_logger().warn("No contract_path provided! TopicExecutor will use defaults.")
+            self.get_logger().warn("No robot_config_path provided! TopicExecutor will use defaults.")
 
         # 5. Executor (Topic-based)
         self._executor = TopicExecutor(self, {'action_specs': self._action_specs})

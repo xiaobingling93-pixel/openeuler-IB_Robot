@@ -91,7 +91,6 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 # ---- Shared core (ONLY these two)
 from robot_config.contract_utils import (
-    load_contract,
     iter_specs,
     feature_from_spec,
     contract_fingerprint,
@@ -215,135 +214,20 @@ def _plan_streams(
 
 
 def _load_contract_from_robot_config(robot_config_path: Path) -> Contract:
-    """Load contract from robot_config.yaml (Single Source of Truth).
-
-    Parameters
-    ----------
-    robot_config_path : Path
-        Path to robot_config.yaml. The contract section will be used directly.
-
-    Returns
-    -------
-    Contract
-        Loaded contract object.
-
-    Raises
-    ------
-    ValueError
-        If robot_config_path is invalid or missing contract section.
-    """
-    robot_config_data = yaml.safe_load(
-        Path(robot_config_path).read_text(encoding="utf-8")
-    )
-
-    if "robot" in robot_config_data:
-        robot_config_data = robot_config_data["robot"]
-
-    contract_data = robot_config_data.get("contract")
-    if contract_data is None:
-        raise ValueError(
-            f"No 'contract' section found in {robot_config_path}. "
-            f"Please add a 'contract' section with observations and actions."
-        )
-
+    """Load contract from robot_config.yaml (Single Source of Truth)."""
     print(f"[bag_to_lerobot] Loading contract from robot_config: {robot_config_path}")
+    from robot_config.loader import load_robot_config
+    robot_config = load_robot_config(str(robot_config_path))
+    contract = robot_config.to_contract()
+    
+    print(f"[bag_to_lerobot]   Observations: {len(contract.observations)}")
+    for obs in contract.observations:
+        print(f"[bag_to_lerobot]     - {obs.key} <- {obs.topic}")
+    print(f"[bag_to_lerobot]   Actions: {len(contract.actions)}")
+    for act in contract.actions:
+        print(f"[bag_to_lerobot]     - {act.key} -> {act.publish_topic}")
 
-    contract_dict = {
-        'name': robot_config_data.get('name', 'robot'),
-        'version': 1,
-        'robot_type': robot_config_data.get('robot_type'),
-        'rate_hz': contract_data.get('rate_hz', 20),
-        'max_duration_s': contract_data.get('max_duration_s', 90.0),
-        'observations': contract_data.get('observations', []),
-        'actions': contract_data.get('actions', []),
-        'recording': contract_data.get('recording', {}),
-        'process': contract_data.get('process', {}),
-    }
-
-    print(f"[bag_to_lerobot]   Observations: {len(contract_dict['observations'])}")
-    for obs in contract_dict['observations']:
-        print(f"[bag_to_lerobot]     - {obs.get('key')} <- {obs.get('topic')}")
-    print(f"[bag_to_lerobot]   Actions: {len(contract_dict['actions'])}")
-    for act in contract_dict['actions']:
-        pub = act.get('publish', {})
-        print(f"[bag_to_lerobot]     - {act.get('key')} -> {pub.get('topic', 'N/A')}")
-
-    return _dict_to_contract(contract_dict)
-
-
-def _dict_to_contract(contract_dict: Dict[str, Any]) -> Contract:
-    """Convert a contract dictionary to a Contract dataclass.
-
-    This is similar to load_contract but works with an in-memory dict
-    instead of reading from a file.
-    """
-    def _as_align(d: Optional[Dict[str, Any]]):
-        if not d:
-            return None
-        from robot_config.contract_utils import AlignSpec
-        return AlignSpec(
-            strategy=str(d.get("strategy", "hold")).lower(),
-            tol_ms=int(d.get("tol_ms", 0)),
-            stamp=str(d.get("stamp", "receive")).lower(),
-        )
-
-    def _obs(it: Dict[str, Any]):
-        from robot_config.contract_utils import ObservationSpec
-        return ObservationSpec(
-            key=it["key"],
-            topic=it["topic"],
-            type=it["type"],
-            selector=it.get("selector"),
-            image=it.get("image"),
-            align=_as_align(it.get("align")),
-            qos=it.get("qos"),
-        )
-
-    def _act(it: Dict[str, Any]):
-        from robot_config.contract_utils import ActionSpec
-        pub = it["publish"]
-        sb = str(it.get("safety_behavior", "zeros")).lower().strip()
-        if sb not in ("zeros", "hold"):
-            sb = "zeros"
-        return ActionSpec(
-            key=it["key"],
-            publish_topic=pub["topic"],
-            type=pub["type"],
-            selector=it.get("selector"),
-            from_tensor=it.get("from_tensor"),
-            publish_qos=pub.get("qos"),
-            publish_strategy=pub.get("strategy"),
-            safety_behavior=sb,
-        )
-
-    def _task(it: Dict[str, Any]):
-        from robot_config.contract_utils import TaskSpec
-        return TaskSpec(
-            key=it.get("key", it["topic"]),
-            topic=it["topic"],
-            type=it["type"],
-            qos=it.get("qos"),
-        )
-
-    obs = [_obs(it) for it in (contract_dict.get("observations") or [])]
-    acts = [_act(it) for it in (contract_dict.get("actions") or [])]
-    tks = [_task(it) for it in (contract_dict.get("tasks") or [])]
-    rec = contract_dict.get("recording") or {}
-    proc = contract_dict.get("process") or {}
-
-    return Contract(
-        name=contract_dict.get("name", "contract"),
-        version=int(contract_dict.get("version", 1)),
-        rate_hz=float(contract_dict.get("rate_hz", contract_dict.get("fps", 20.0))),
-        max_duration_s=float(contract_dict.get("max_duration_s", 30.0)),
-        observations=obs,
-        actions=acts,
-        tasks=tks,
-        recording=rec,
-        robot_type=contract_dict.get("robot_type"),
-        timestamp_source=str(contract_dict.get("timestamp_source", "receive")).lower(),
-        process=proc,
-    )
+    return contract
 
 
 def export_bags_to_lerobot(
@@ -500,7 +384,7 @@ def export_bags_to_lerobot(
     # Persist the contract fingerprint into info.json so training can validate & propagate it
     try:
         fp = contract_fingerprint(contract)
-        ds.meta.info["rosetta_fingerprint"] = fp
+        ds.meta.info["ibrobot_fingerprint"] = fp
     except Exception:
         pass  # non-fatal; downstream will just skip the check
     ds.meta.update_chunk_settings(

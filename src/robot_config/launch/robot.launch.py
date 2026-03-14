@@ -163,6 +163,16 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR loading config: {e}")
         raise
 
+    # Store config path for downstream modules (e.g., recording)
+    if config_path_override:
+        robot_config['_config_path'] = config_path_override
+    else:
+        try:
+            robot_config_share = get_package_share_directory("robot_config")
+        except:
+            robot_config_share = str(Path(__file__).parent.parent)
+        robot_config['_config_path'] = str(Path(robot_config_share) / "config" / "robots" / f"{robot_config_name}.yaml")
+
     # ========== 3. Apply control mode override ==========
     if control_mode_override:
         robot_config['default_control_mode'] = control_mode_override

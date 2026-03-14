@@ -118,46 +118,33 @@ def generate_episodic_recording_node(robot_config: dict, active_control_mode: st
         List containing Node action for episode_recorder
 
     Behavior:
-        - Synthesizes contract dynamically from robot_config based on active_control_mode
+        - Uses contract section directly from robot_config.yaml (Single Source of Truth)
         - Starts episode_recorder Action Server (background service)
         - Each episode saved as: ~/rosbag_demos/episodes/<timestamp>
         - Operator prompt embedded in bag metadata
     """
-    from robot_config.contract_builder import (
-        synthesize_contract,
-        get_contract_output_path,
-        save_contract,
-    )
-    import os
-
     print(f"[recording_builder] Using EPISODIC recording (episode_recorder Action Server)")
 
-    # 1. Synthesize contract dynamically
-    contract = synthesize_contract(robot_config, active_control_mode)
-    
+    # Check if contract section exists in robot_config
+    contract = robot_config.get('contract')
     if not contract:
-        print(f"[recording_builder] INFO: Inference disabled for '{active_control_mode}', falling back to static contract section in robot config.")
-        contract = robot_config.get('contract')
-        if not contract:
-            print(f"[recording_builder] ERROR: No 'contract' section found in robot configuration.")
-            return []
-
-    # 2. Save contract to /tmp/...
-    contract_path = get_contract_output_path(robot_config, active_control_mode)
-    try:
-        save_contract(contract, contract_path)
-        print(f"[recording_builder] Contract synthesized and saved to: {contract_path}")
-    except Exception as e:
-        print(f"[recording_builder] ERROR: Could not save contract: {e}")
+        print(f"[recording_builder] ERROR: No 'contract' section found in robot configuration.")
+        print(f"[recording_builder] Please add 'contract' section with observations and actions.")
         return []
 
     # Determine bag output directory
-    import os
-    
-    # Check if a custom directory is specified in the robot_config YAML
     recording_config = robot_config.get('recording', {})
     custom_dir = recording_config.get('bag_base_dir', '~/rosbag_demos/episodes')
     bag_base_dir = os.path.expanduser(custom_dir)
+
+    # Get robot_config file path (passed via launch argument)
+    # The launch file should pass the robot_config path as a parameter
+    robot_config_path = robot_config.get('_config_path', '')
+    
+    if not robot_config_path:
+        raise ValueError(
+            "robot_config dict is missing '_config_path'. Cannot launch episodic recording without it."
+        )
 
     # Create episode_recorder node (Action Server)
     episode_recorder_node = Node(
@@ -166,7 +153,7 @@ def generate_episodic_recording_node(robot_config: dict, active_control_mode: st
         name='episode_recorder',
         output='screen',
         parameters=[
-            {'contract_path': contract_path},
+            {'robot_config_path': robot_config_path},
             {'bag_base_dir': bag_base_dir},
         ],
     )
@@ -179,50 +166,6 @@ def generate_episodic_recording_node(robot_config: dict, active_control_mode: st
     print(f"[recording_builder] " + "="*70)
 
     return [episode_recorder_node]
-
-
-def find_contract_path(robot_name: str) -> str:
-    """
-    Find contract file path for a given robot.
-
-    Args:
-        robot_name: Robot name (e.g., 'so101', 'turtlebot')
-
-    Returns:
-        Contract file path (absolute path)
-
-    Search order:
-        1. robot_config package share directory: config/contracts/<robot_name>.yaml
-        2. Workspace relative path: src/robot_config/config/contracts/<robot_name>.yaml
-        3. Fallback: act_grab_pan.yaml
-    """
-    contract_filename = f"{robot_name}.yaml"
-
-    # Try package share directory
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        config_share = get_package_share_directory('robot_config')
-        contract_path = os.path.join(config_share, 'config', 'contracts', contract_filename)
-        if os.path.exists(contract_path):
-            return contract_path
-    except:
-        pass
-
-    # Try workspace relative path
-    workspace_root = find_workspace_root()
-    if workspace_root:
-        contract_path = os.path.join(workspace_root, 'src', 'robot_config', 'config', 'contracts', contract_filename)
-        if os.path.exists(contract_path):
-            return contract_path
-
-    # Fallback to act_grab_pan.yaml
-    if workspace_root:
-        fallback_path = os.path.join(workspace_root, 'src', 'robot_config', 'config', 'contracts', 'act_grab_pan.yaml')
-        if os.path.exists(fallback_path):
-            return fallback_path
-
-    # Last resort: return expected path even if it doesn't exist
-    return f"src/robot_config/config/contracts/{contract_filename}"
 
 
 def find_workspace_root() -> str:
