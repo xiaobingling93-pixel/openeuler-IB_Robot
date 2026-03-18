@@ -179,14 +179,42 @@ setup_developer_forks() {
 # ============================================================================
 # Dependency Management
 # ============================================================================
+ensure_rosdep() {
+    if command -v rosdep &> /dev/null; then
+        return 0
+    fi
+
+    log_warn "rosdep not found. Installing rosdepc (rosdep with Chinese mirror support)..."
+    if command -v pip3 &> /dev/null; then
+        pip3 install rosdepc
+    elif command -v pip &> /dev/null; then
+        pip install rosdepc
+    else
+        log_error "pip/pip3 not found. Cannot install rosdepc automatically."
+        exit 1
+    fi
+
+    log_info "Initializing rosdepc..."
+    sudo rosdepc init
+    # rosdepc provides a 'rosdep' compatible shim; also alias for this session
+    if ! command -v rosdep &> /dev/null; then
+        rosdepc update --rosdistro=humble
+        # Redefine rosdep as rosdepc for the rest of this script
+        rosdep() { rosdepc "$@"; }
+        export -f rosdep
+    fi
+}
+
 install_system_deps() {
+    ensure_rosdep
+
     if command -v apt-get &> /dev/null; then
         log_info "Updating apt package lists..."
         sudo apt-get update -qq
-        
+
         log_info "Updating rosdep database..."
         rosdep update --rosdistro=humble
-        
+
         log_info "Installing ROS dependencies via apt..."
         rosdep install \
             --from-paths src \
