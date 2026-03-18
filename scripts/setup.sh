@@ -231,6 +231,11 @@ check_openeuler() {
     if uname -r | grep -qi "openeuler"; then
         log_warn "openEuler detected. Setting ROS_OS_OVERRIDE=rhel:8 for rosdep compatibility."
         export ROS_OS_OVERRIDE=rhel:8
+
+        log_info "Adding openEuler repo and installing gcc-c++..."
+        sudo dnf config-manager --add-repo https://repo.openeuler.org/openEuler-24.03-LTS/OS/aarch64
+        sudo dnf clean all && sudo dnf makecache
+        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced
     fi
 }
 
@@ -250,7 +255,70 @@ ensure_rosdepc() {
     # Init if sources list doesn't exist yet
     if [[ ! -d /etc/ros/rosdep/sources.list.d ]]; then
         log_info "Initializing rosdepc..."
-        sudo rosdepc init
+        local init_output
+        init_output=$(sudo rosdepc init 2>&1)
+        local init_exit=$?
+
+        # Check both exit code and output for SSL/network errors
+        if [[ ${init_exit} -ne 0 ]] || echo "${init_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
+            if echo "${init_output}" | grep -qi "certificate\|ssl\|urlopen"; then
+                log_warn "SSL certificate error detected during rosdepc init:"
+                echo "${init_output}"
+                log_warn "Attempting to fix SSL certificates..."
+            else
+                log_warn "rosdepc init failed, attempting SSL certificate fix..."
+                echo "${init_output}"
+            fi
+
+            # Get the .pem path used by Python's ssl module
+            local ssl_pem
+            ssl_pem=$(python3 -c "import ssl; print(ssl.get_default_verify_paths().openssl_cafile)" 2>/dev/null)
+
+            if [[ -z "${ssl_pem}" ]]; then
+                log_error "Could not determine Python SSL certificate path."
+                exit 1
+            fi
+
+            # Find the first available system CA bundle
+            local ca_bundle=""
+            for candidate in \
+                /etc/pki/tls/certs/ca-bundle.crt \
+                /etc/ssl/certs/ca-bundle.crt \
+                /etc/ssl/certs/ca-certificates.crt; do
+                if [[ -f "${candidate}" ]]; then
+                    ca_bundle="${candidate}"
+                    break
+                fi
+            done
+
+            if [[ -z "${ca_bundle}" ]]; then
+                log_error "No system CA bundle found. Cannot fix SSL certificates."
+                exit 1
+            fi
+
+            log_info "Python SSL cert path: ${ssl_pem}"
+            log_info "System CA bundle: ${ca_bundle}"
+
+            log_info "Creating directory: $(dirname "${ssl_pem}")"
+            sudo mkdir -p "$(dirname "${ssl_pem}")"
+
+            if [[ -f "${ssl_pem}" ]]; then
+                log_info "Backing up existing cert: ${ssl_pem} -> ${ssl_pem}.bak"
+                sudo cp "${ssl_pem}" "${ssl_pem}.bak"
+            fi
+
+            log_info "Copying ${ca_bundle} -> ${ssl_pem}"
+            sudo cp "${ca_bundle}" "${ssl_pem}"
+
+            # Retry init, capture output again
+            local retry_output
+            if ! retry_output=$(sudo rosdepc init 2>&1) || echo "${retry_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
+                log_error "rosdepc init failed even after SSL fix."
+                echo "${retry_output}"
+                log_error "Try running manually: sudo rosdepc init"
+                exit 1
+            fi
+        fi
     fi
 }
 
