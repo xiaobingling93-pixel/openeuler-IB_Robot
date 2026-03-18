@@ -1,6 +1,16 @@
 #!/bin/bash
 # setup.sh - Workspace setup script for ROS 2 Humble
 # Handles repository import, dependency installation, and environment setup
+#
+# Usage:
+#   ./scripts/setup.sh           # Interactive mode (prompts for each step)
+#   ./scripts/setup.sh --yes     # Auto-yes mode (skips all prompts with defaults)
+#   ./scripts/setup.sh -y        # Same as --yes
+#
+# Auto-yes defaults:
+#   - Submodule init:  initialize all submodules (option 1)
+#   - Fork setup:      skipped
+#   - Other prompts:   confirmed automatically
 set -e
 
 # ============================================================================
@@ -8,6 +18,8 @@ set -e
 # ============================================================================
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 PARALLEL_WORKERS=$(($(nproc) / 2))
+AUTO_YES=false
+SUMMARY=()
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,9 +27,28 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
+log_done()    { SUMMARY+=("${GREEN}✓${NC} $*"); }
+log_skipped() { SUMMARY+=("${YELLOW}⊘${NC} $* (skipped by --yes)"); }
+
+# ask_yn <prompt> <default>
+# default: "y" = yes by default (Y/n), "n" = no by default (y/N)
+# Returns 0 if confirmed, 1 if declined.
+ask_yn() {
+    local prompt="$1"
+    local default="${2:-n}"
+    if [[ "${AUTO_YES}" == true ]]; then
+        echo -e "${prompt} [auto-yes]"
+        return 0
+    fi
+    local hint
+    if [[ "${default}" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
+    read -r -p "${prompt} [${hint}]: " REPLY
+    REPLY="${REPLY:-${default}}"
+    [[ "${REPLY}" == "y" || "${REPLY}" == "Y" ]]
+}
 
 # ============================================================================
 # Environment Checks
@@ -64,14 +95,15 @@ update_submodules() {
             echo "  ✓ ${name} (${path})"
         done
         echo ""
-        read -p "Do you want to sync/update all submodules? [y/N]: " CONFIRM
-        if [[ "${CONFIRM}" != "y" && "${CONFIRM}" != "Y" ]]; then
+        if ! ask_yn "Do you want to sync/update all submodules?" "n"; then
             log_info "Skipping submodule update."
+            log_skipped "Submodule sync/update"
             return 0
         fi
         log_info "Updating all submodules..."
         export GIT_LFS_SKIP_SMUDGE=1
         git submodule update --init --recursive
+        log_done "Submodules synced/updated"
         return 0
     fi
 
@@ -92,44 +124,55 @@ update_submodules() {
     echo "  4) Select individually"
     echo "  0) Skip"
     echo ""
-    read -p "Enter your choice [1-4, 0]: " CHOICE
+    if [[ "${AUTO_YES}" == true ]]; then
+        CHOICE="1"
+        log_info "Auto-yes: selecting option 1 (all submodules)"
+    else
+        read -r -p "Enter your choice [1-4, 0]: " CHOICE
+    fi
 
     case "${CHOICE}" in
         1)
             log_info "Initializing all submodules..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive
+            log_done "Submodules initialized: all"
             ;;
         2)
             log_info "Initializing LeRobot (libs/lerobot)..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive libs/lerobot
+            log_done "Submodules initialized: LeRobot"
             ;;
         3)
             log_info "Initializing PyMoveIt2 (src/pymoveit2)..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive src/pymoveit2
+            log_done "Submodules initialized: PyMoveIt2"
             ;;
         4)
             echo ""
             for entry in "${need_init[@]}"; do
                 local path="${entry%%:*}"
                 local name="${entry##*:}"
-                read -p "Initialize ${name} (${path})? [Y/n]: " CONFIRM
-                if [[ "${CONFIRM}" != "n" && "${CONFIRM}" != "N" ]]; then
+                if ask_yn "Initialize ${name} (${path})?" "y"; then
                     log_info "Initializing ${name}..."
                     export GIT_LFS_SKIP_SMUDGE=1
                     git submodule update --init --recursive "${path}"
+                    log_done "Submodule initialized: ${name}"
                 else
                     log_warn "Skipped ${name}"
+                    log_skipped "Submodule: ${name}"
                 fi
             done
             ;;
         0)
             log_warn "Submodule initialization skipped."
+            log_skipped "Submodule initialization"
             ;;
         *)
             log_error "Invalid choice. Skipping submodule initialization."
+            log_skipped "Submodule initialization (invalid choice)"
             ;;
     esac
 }
@@ -141,7 +184,12 @@ setup_developer_forks() {
     echo "to automatically set up your personal fork as 'origin' and the"
     echo "original repository as 'upstream'."
     echo ""
-    read -p "Enter your GitCode username (leave empty to skip): " USERNAME
+    if [[ "${AUTO_YES}" == true ]]; then
+        log_info "Auto-yes: skipping fork setup."
+        log_skipped "Developer fork setup"
+        return 0
+    fi
+    read -r -p "Enter your GitCode username (leave empty to skip): " USERNAME
 
     if [[ -n "${USERNAME}" ]]; then
         local MAIN_FORK="git@gitcode.com:${USERNAME}/IB_Robot.git"
@@ -151,9 +199,7 @@ setup_developer_forks() {
         echo -e "  Main Repo:    ${MAIN_FORK}"
         echo -e "  libs/lerobot: ${LEROBOT_FORK}"
         echo ""
-        read -p "Confirm setting these as 'origin'? [y/N]: " CONFIRM
-
-        if [[ "${CONFIRM}" == "y" || "${CONFIRM}" == "Y" ]]; then
+        if ask_yn "Confirm setting these as 'origin'?" "n"; then
             log_info "Configuring personal forks..."
             
             # 1. Update main repo remotes
@@ -168,8 +214,10 @@ setup_developer_forks() {
             fi
 
             log_info "Forks configured successfully!"
+            log_done "Developer forks configured (origin=${MAIN_FORK})"
         else
             log_info "Fork setup cancelled."
+            log_skipped "Developer fork setup (cancelled)"
         fi
     else
         log_info "Skipping fork setup."
@@ -179,44 +227,46 @@ setup_developer_forks() {
 # ============================================================================
 # Dependency Management
 # ============================================================================
-ensure_rosdep() {
-    if command -v rosdep &> /dev/null; then
-        return 0
+check_openeuler() {
+    if uname -r | grep -qi "openeuler"; then
+        log_warn "openEuler detected. Setting ROS_OS_OVERRIDE=rhel:8 for rosdep compatibility."
+        export ROS_OS_OVERRIDE=rhel:8
+    fi
+}
+
+ensure_rosdepc() {
+    if ! command -v rosdepc &> /dev/null; then
+        log_warn "rosdepc not found. Installing rosdepc (rosdep with Chinese mirror support)..."
+        if command -v pip3 &> /dev/null; then
+            pip3 install rosdepc
+        elif command -v pip &> /dev/null; then
+            pip install rosdepc
+        else
+            log_error "pip/pip3 not found. Cannot install rosdepc automatically."
+            exit 1
+        fi
     fi
 
-    log_warn "rosdep not found. Installing rosdepc (rosdep with Chinese mirror support)..."
-    if command -v pip3 &> /dev/null; then
-        pip3 install rosdepc
-    elif command -v pip &> /dev/null; then
-        pip install rosdepc
-    else
-        log_error "pip/pip3 not found. Cannot install rosdepc automatically."
-        exit 1
-    fi
-
-    log_info "Initializing rosdepc..."
-    sudo rosdepc init
-    # rosdepc provides a 'rosdep' compatible shim; also alias for this session
-    if ! command -v rosdep &> /dev/null; then
-        rosdepc update --rosdistro=humble
-        # Redefine rosdep as rosdepc for the rest of this script
-        rosdep() { rosdepc "$@"; }
-        export -f rosdep
+    # Init if sources list doesn't exist yet
+    if [[ ! -d /etc/ros/rosdep/sources.list.d ]]; then
+        log_info "Initializing rosdepc..."
+        sudo rosdepc init
     fi
 }
 
 install_system_deps() {
-    ensure_rosdep
+    check_openeuler
+    ensure_rosdepc
 
     if command -v apt-get &> /dev/null; then
         log_info "Updating apt package lists..."
         sudo apt-get update -qq
 
-        log_info "Updating rosdep database..."
-        rosdep update --rosdistro=humble
+        log_info "Updating rosdepc database..."
+        rosdepc update --rosdistro=humble
 
         log_info "Installing ROS dependencies via apt..."
-        rosdep install \
+        rosdepc install \
             --from-paths src \
             --ignore-src \
             --rosdistro=humble \
@@ -225,12 +275,18 @@ install_system_deps() {
     elif command -v dnf &> /dev/null; then
         log_info "Updating dnf package repositories..."
         # openEuler Embedded might not need full dnf update every time
-        
-        log_info "Updating rosdep database..."
-        rosdep update --rosdistro=humble
-        
+
+        # Disable GPG check in dnf.conf to avoid missing key errors on openEuler
+        if grep -q "^gpgcheck=1" /etc/dnf/dnf.conf 2>/dev/null; then
+            sudo sed -i 's/^gpgcheck=1/gpgcheck=0/' /etc/dnf/dnf.conf
+            log_warn "Set gpgcheck=0 in /etc/dnf/dnf.conf to avoid GPG errors."
+        fi
+
+        log_info "Updating rosdepc database..."
+        rosdepc update --rosdistro=humble
+
         log_info "Installing ROS dependencies via dnf..."
-        rosdep install \
+        rosdepc install \
             --from-paths src \
             --ignore-src \
             --rosdistro=humble \
@@ -250,7 +306,7 @@ setup_python_venv() {
         sudo apt-get update -qq
         sudo apt-get install -y python3-venv python3-pip -qq
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y python3-virtualenv python3-pip -q
+        sudo dnf install -y --nogpgcheck python3-virtualenv python3-pip -q
     fi
 
     # 2. 创建虚拟环境 (必须包含 --system-site-packages 以使用系统的 rclpy)
@@ -309,6 +365,14 @@ setup_python_venv() {
 # Main
 # ============================================================================
 main() {
+    # Parse arguments
+    for arg in "$@"; do
+        case "${arg}" in
+            --yes|-y) AUTO_YES=true ;;
+            *) log_warn "Unknown argument: ${arg}" ;;
+        esac
+    done
+
     cd "${WORKSPACE}"
     
     # Check for conflicting environments
@@ -324,8 +388,18 @@ main() {
     
     # Install dependencies
     install_system_deps
+    log_done "System ROS dependencies installed"
     setup_python_venv
-    
+    log_done "Python virtual environment configured"
+
+    echo ""
+    echo -e "${YELLOW}============================================================${NC}"
+    echo -e "${YELLOW} Setup Summary${NC}"
+    echo -e "${YELLOW}============================================================${NC}"
+    for entry in "${SUMMARY[@]}"; do
+        echo -e "  ${entry}"
+    done
+    echo ""
     log_info "Setup complete! Run ./scripts/build.sh to build the workspace."
 }
 
