@@ -128,6 +128,35 @@ export ROS_DOMAIN_ID=<0-232之间的唯一数字>
 
 ---
 
+## AI Agent Skills
+
+IB-Robot 内置 AI 编程代理技能，帮助 Claude Code、Gemini CLI、OpenCode 等 AI Agent 更好地理解项目架构和开发流程。
+
+### `.agents/skills/` 目录
+
+根据 [agentskills.io](https://agentskills.io) 标准，`.agents/skills/` 是跨客户端通用的技能目录：
+
+> The `.agents/skills/` paths have emerged as a widely-adopted convention for cross-client skill sharing.
+
+**优势**：单一目录，所有支持的 Agent 自动发现，无需为每个 Agent 单独配置。
+
+### 可用技能
+
+| Skill | 功能 | 触发场景 |
+|-------|------|----------|
+| `ibrobot-env` | 环境变量设置 | Python/ROS 2/pytest 命令前 |
+| `ibrobot-build` | 编译流程 | colcon build、代码修改后 |
+| `ibrobot-launch` | 启动节点 | ros2 launch、测试系统 |
+| `ibrobot-git-flow` | Git 工作流 | git commit、PR 提交 |
+| `ibrobot-architecture` | 架构知识 | robot_config、contract、inference |
+
+### 支持的 Agent
+
+所有符合 Agent Skills 标准的客户端都会自动扫描 `.agents/skills/`：
+详见 [agentskills.io](https://agentskills.io)。
+
+---
+
 ## 运行指南
 
 所有操作均通过 `robot_config` 包的统一入口 `robot.launch.py` 触发。
