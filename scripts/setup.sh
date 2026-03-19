@@ -403,13 +403,9 @@ setup_python_venv() {
     # 升级 pip
     python3 -m pip install --upgrade pip --quiet
     
-    # 核心修复：强制安装 NumPy 1.x 以兼容 ROS 2 系统组件
-    log_info "Ensuring NumPy 1.x compatibility..."
-    python3 -m pip install "numpy<2" --quiet
-
     # 解决 setuptools 版本冲突 (兼容 LeRobot 和 colcon)
     python3 -m pip install "setuptools<80" "setuptools>=71" --quiet
-    
+
     # 以可编辑模式安装 LeRobot
     if [[ -d "${WORKSPACE}/libs/lerobot" ]]; then
         log_info "Installing LeRobot in editable mode..."
@@ -427,6 +423,11 @@ setup_python_venv() {
     # 安装 gitlint 并设置 git hook
     log_info "Installing gitlint..."
     python3 -m pip install gitlint --quiet
+
+    # 核心修复：所有依赖安装完毕后，强制固定 NumPy 1.26.4 以兼容 ROS 2 系统组件
+    # 必须放在最后，防止 lerobot/scipy 等依赖将 numpy 升级到 2.x
+    log_info "Pinning NumPy to 1.26.4 for ROS 2 compatibility..."
+    python3 -m pip install "numpy==1.26.4" --quiet
     log_info "Installing gitlint pre-commit hook..."
     gitlint install-hook
 
