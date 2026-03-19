@@ -3,9 +3,11 @@
 # Handles repository import, dependency installation, and environment setup
 #
 # Usage:
-#   ./scripts/setup.sh           # Interactive mode (prompts for each step)
-#   ./scripts/setup.sh --yes     # Auto-yes mode (skips all prompts with defaults)
-#   ./scripts/setup.sh -y        # Same as --yes
+#   ./scripts/setup.sh               # Interactive mode (prompts for each step)
+#   ./scripts/setup.sh --yes         # Auto-yes mode (skips all prompts with defaults)
+#   ./scripts/setup.sh -y            # Same as --yes
+#   ./scripts/setup.sh --git-http    # Use HTTP instead of SSH for git remotes
+#   ./scripts/setup.sh -y --git-http # Combine options
 #
 # Auto-yes defaults:
 #   - Submodule init:  initialize all submodules (option 1)
@@ -19,6 +21,7 @@ set -e
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 PARALLEL_WORKERS=$(($(nproc) / 2))
 AUTO_YES=false
+GIT_HTTP=false
 SUMMARY=()
 
 # Colors for output
@@ -192,8 +195,16 @@ setup_developer_forks() {
     read -r -p "Enter your GitCode username (leave empty to skip): " USERNAME
 
     if [[ -n "${USERNAME}" ]]; then
-        local MAIN_FORK="git@gitcode.com:${USERNAME}/IB_Robot.git"
-        local LEROBOT_FORK="git@gitcode.com:${USERNAME}/lerobot_ros2.git"
+        local MAIN_FORK LEROBOT_FORK UPSTREAM_URL
+        if [[ "${GIT_HTTP}" == true ]]; then
+            MAIN_FORK="https://gitcode.com/${USERNAME}/IB_Robot.git"
+            LEROBOT_FORK="https://gitcode.com/${USERNAME}/lerobot_ros2.git"
+            UPSTREAM_URL="https://atomgit.com/openeuler/IB_Robot.git"
+        else
+            MAIN_FORK="git@gitcode.com:${USERNAME}/IB_Robot.git"
+            LEROBOT_FORK="git@gitcode.com:${USERNAME}/lerobot_ros2.git"
+            UPSTREAM_URL="git@atomgit.com:openeuler/IB_Robot.git"
+        fi
 
         echo -e "\nProposed Fork URLs:"
         echo -e "  Main Repo:    ${MAIN_FORK}"
@@ -204,7 +215,7 @@ setup_developer_forks() {
             
             # 1. Update main repo remotes
             git remote set-url origin "${MAIN_FORK}"
-            git remote add upstream git@atomgit.com:openeuler/IB_Robot.git 2>/dev/null || git remote set-url upstream git@atomgit.com:openeuler/IB_Robot.git
+            git remote add upstream "${UPSTREAM_URL}" 2>/dev/null || git remote set-url upstream "${UPSTREAM_URL}"
 
             # 2. Update submodule fork
             if [[ -d "libs/lerobot/.git" ]]; then
@@ -437,6 +448,7 @@ main() {
     for arg in "$@"; do
         case "${arg}" in
             --yes|-y) AUTO_YES=true ;;
+            --git-http) GIT_HTTP=true ;;
             *) log_warn "Unknown argument: ${arg}" ;;
         esac
     done
