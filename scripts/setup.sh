@@ -385,7 +385,7 @@ setup_python_venv() {
         sudo apt-get update -qq
         sudo apt-get install -y python3-venv python3-pip -qq
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y --nogpgcheck python3-virtualenv python3-pip -q
+        sudo dnf install -y --nogpgcheck python3-virtualenv python3-pip python3-devel -q
     fi
 
     # 2. 创建虚拟环境 (必须包含 --system-site-packages 以使用系统的 rclpy)
