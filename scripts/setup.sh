@@ -238,6 +238,29 @@ setup_developer_forks() {
 # ============================================================================
 # Dependency Management
 # ============================================================================
+check_ros_installation() {
+    # Check if ROS 2 Humble is installed
+    if [[ ! -f /opt/ros/humble/setup.bash ]]; then
+        log_warn "ROS 2 Humble not found at /opt/ros/humble/setup.bash"
+        log_info "Running ROS 2 and colcon installation script..."
+
+        local install_args=()
+        if [[ "${AUTO_YES}" == true ]]; then
+            install_args+=("--yes")
+        fi
+
+        if "${WORKSPACE}/scripts/install_ros_colcon.sh" "${install_args[@]}"; then
+            log_done "ROS 2 Humble and colcon installed"
+        else
+            log_error "ROS 2 installation failed"
+            log_error "Please run ${WORKSPACE}/scripts/install_ros_colcon.sh manually to diagnose the issue"
+            exit 1
+        fi
+    else
+        log_info "ROS 2 Humble is already installed"
+    fi
+}
+
 check_openeuler() {
     if uname -r | grep -qi "openeuler"; then
         log_warn "openEuler detected. Setting ROS_OS_OVERRIDE=rhel:8 for rosdep compatibility."
@@ -334,6 +357,9 @@ ensure_rosdepc() {
 }
 
 install_system_deps() {
+    # Check for ROS 2 installation first
+    check_ros_installation
+
     check_openeuler
     ensure_rosdepc
 
