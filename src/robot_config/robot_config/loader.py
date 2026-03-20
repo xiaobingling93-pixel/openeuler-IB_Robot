@@ -115,6 +115,7 @@ def load_contract_config(data: Dict[str, Any]) -> ContractExtensionConfig:
             ContractObservation(
                 key=obs_data["key"],
                 topic=obs_data.get("topic"),
+                type=obs_data.get("type"),
                 peripheral=obs_data.get("peripheral"),
                 selector=obs_data.get("selector"),
                 image=obs_data.get("image"),

@@ -226,6 +226,12 @@ def feature_from_spec(
             },
             True,
         )
+    if spec.ros_type == "sensor_msgs/msg/PointCloud2":
+        return (
+            spec.key,
+            {"dtype": "pointcloud", "shape": None},  # sentinel, not into LeRobot features
+            False,
+        )
     if not spec.names:
         raise ValueError(f"{spec.key}: vector features must specify selector.names")
     return (

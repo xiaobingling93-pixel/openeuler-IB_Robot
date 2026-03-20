@@ -259,3 +259,26 @@ def _dec_f64(msg, spec):
 @register_decoder("std_msgs/msg/Int32MultiArray")
 def _dec_i32(msg, spec):
     return np.asarray(msg.data, dtype=np.int32)
+
+@register_decoder("sensor_msgs/msg/PointCloud2")
+def _dec_pointcloud2(msg, spec):
+    """
+    解码无序 PointCloud2（height=1, width=N_valid）。
+    返回 {"xyz": (N,3) float32, "rgb": (N,3) uint8}。
+    """
+    import sensor_msgs_py.point_cloud2 as pc2
+    N = msg.width  # height=1 for unorganized cloud
+
+    xyz = pc2.read_points_numpy(msg, field_names=("x", "y", "z"), skip_nans=False)
+    xyz = xyz.reshape(N, 3).astype(np.float32)
+
+    rgb = np.zeros((N, 3), dtype=np.uint8)
+    field_names = [f.name for f in msg.fields]
+    if "rgb" in field_names:
+        rgb_raw = pc2.read_points_numpy(msg, field_names=("rgb",), skip_nans=False)
+        rgb_packed = rgb_raw.reshape(N).view(np.uint32)
+        rgb[:, 0] = (rgb_packed >> 16) & 0xFF  # R
+        rgb[:, 1] = (rgb_packed >> 8)  & 0xFF  # G
+        rgb[:, 2] =  rgb_packed        & 0xFF  # B
+
+    return {"xyz": xyz, "rgb": rgb}
