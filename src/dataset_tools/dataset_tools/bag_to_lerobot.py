@@ -290,6 +290,7 @@ def export_bags_to_lerobot(
     primary_image_key: Optional[str] = None
     state_specs = []  # Track multiple observation.state specs
     action_specs_by_key: Dict[str, List[Any]] = {}  # Track multiple action specs by key
+    pc_keys: set = set()  # PointCloud2 keys routed to side-car (not into LeRobot features)
 
     for sv in specs:
         # Handle multiple observation.state specs
@@ -308,6 +309,11 @@ def export_bags_to_lerobot(
 
         # Process other specs normally
         k, ft, is_img = feature_from_spec(sv, use_videos)
+
+        # Route PointCloud2 to side-car; keep out of LeRobot features
+        if ft.get("dtype") == "pointcloud":
+            pc_keys.add(k)
+            continue
 
         # Ensure task.* specs are treated as per-frame strings even if the
         # underlying helper doesn't special-case them yet.
@@ -406,6 +412,11 @@ def export_bags_to_lerobot(
     # Episodes
     for epi_idx, bag_dir in enumerate(bag_dirs):
         print(f"[Episode {epi_idx}] {bag_dir}")
+
+        # Per-episode point cloud buffer (one entry per key)
+        pc_buf: Dict[str, Dict[str, list]] = {
+            k: {"xyz": [], "rgb": [], "ts": []} for k in pc_keys
+        }
 
         try:
             meta = _read_yaml(bag_dir / "metadata.yaml")
@@ -624,6 +635,18 @@ def export_bags_to_lerobot(
                     # Fallback – should not happen with current features
                     frame[name] = val
 
+            # Collect point cloud data into side-car buffers (not passed to ds.add_frame)
+            for pc_key in pc_keys:
+                pc_val = resampled.get(pc_key, [None] * n_ticks)[i]
+                buf = pc_buf[pc_key]
+                if pc_val is not None and isinstance(pc_val, dict):
+                    buf["xyz"].append(pc_val["xyz"])
+                    buf["rgb"].append(pc_val["rgb"])
+                else:
+                    buf["xyz"].append(np.zeros((0, 3), dtype=np.float32))
+                    buf["rgb"].append(np.zeros((0, 3), dtype=np.uint8))
+                buf["ts"].append(int(ticks_ns[i]))
+
             # Episode-level operator prompt from bag metadata (kept for policy compatibility).
             # This is`` distinct from any per-frame task.* fields coming from ROS topics.
             # LeRobot requires 'task' field in every frame, so always set it (empty string if no prompt).
@@ -635,6 +658,45 @@ def export_bags_to_lerobot(
             f"  → saved {n_ticks} frames @ {int(round(fps))} FPS  | decoded_msgs={decoded_msgs}"
         )
 
+        # Write point cloud side-car (.npz CSR) for each key
+        for pc_key in pc_keys:
+            buf = pc_buf[pc_key]
+            chunk_idx = epi_idx // chunk_size
+            pc_chunk_dir = out_root / "pointclouds" / pc_key / f"chunk-{chunk_idx:03d}"
+            pc_chunk_dir.mkdir(parents=True, exist_ok=True)
+
+            xyz_cat = np.concatenate(buf["xyz"], axis=0) if buf["xyz"] else np.zeros((0, 3), dtype=np.float32)
+            rgb_cat = np.concatenate(buf["rgb"], axis=0) if buf["rgb"] else np.zeros((0, 3), dtype=np.uint8)
+            counts = np.array([len(a) for a in buf["xyz"]], dtype=np.int64)
+            offsets = np.concatenate([[0], np.cumsum(counts)])
+
+            np.savez_compressed(
+                pc_chunk_dir / f"episode_{epi_idx:06d}.npz",
+                xyz=xyz_cat,
+                rgb=rgb_cat,
+                offsets=offsets,
+                timestamps_ns=np.array(buf["ts"], dtype=np.int64),
+                episode_index=np.int32(epi_idx),
+            )
+            print(f"  → pointclouds/{pc_key}/chunk-{chunk_idx:03d}/episode_{epi_idx:06d}.npz  (M={len(xyz_cat)}, T={len(buf['ts'])})")
+
+
+    # Write pointclouds/meta.json (side-car format descriptor)
+    if pc_keys:
+        import json as _json
+        (out_root / "pointclouds" / "meta.json").write_text(_json.dumps({
+            "format": "csr",
+            "description": "Unorganized PointCloud2, variable N per frame, CSR format",
+            "pointcloud_keys": sorted(pc_keys),
+            "fields": {
+                "xyz":           {"shape": "(M,3)",  "dtype": "float32", "unit": "meters"},
+                "rgb":           {"shape": "(M,3)",  "dtype": "uint8",   "range": "0-255"},
+                "offsets":       {"shape": "(T+1,)", "dtype": "int64",
+                                  "note": "frame i -> xyz[offsets[i]:offsets[i+1]]"},
+                "timestamps_ns": {"shape": "(T,)",   "dtype": "int64",
+                                  "note": "align with parquet timestamp column (ns)"},
+            },
+        }, indent=2))
 
     print(f"\n[OK] Dataset root: {ds.root.resolve()}")
     if use_videos:
@@ -645,6 +707,9 @@ def export_bags_to_lerobot(
     print(
         "  - meta/info.json, meta/tasks.parquet, meta/stats.json, meta/episodes/*/*.parquet"
     )
+    if pc_keys:
+        print("  - pointclouds/<pc_key>/chunk-*/episode_*.npz  (CSR format)")
+        print("  - pointclouds/meta.json")
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +728,10 @@ Example:
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--bag", help="Path to a single bag directory (episode)")
     g.add_argument("--bags", nargs="+", help="Paths to multiple bag directories")
+    g.add_argument(
+        "--bags-dir",
+        help="Directory containing multiple bag subdirectories (auto-discovers all valid bags)",
+    )
 
     ap.add_argument(
         "--robot-config",
@@ -696,7 +765,22 @@ Example:
 def main() -> None:
     """CLI entry point for batch conversion of ROS 2 bags to LeRobot."""
     args = parse_args()
-    bag_dirs = [Path(args.bag)] if args.bag else [Path(p) for p in args.bags]
+    if args.bag:
+        bag_dirs = [Path(args.bag)]
+    elif args.bags:
+        bag_dirs = [Path(p) for p in args.bags]
+    else:
+        # Auto-discover: find all subdirectories that contain metadata.yaml
+        session_dir = Path(args.bags_dir)
+        bag_dirs = sorted(
+            p for p in session_dir.iterdir()
+            if p.is_dir() and (p / "metadata.yaml").exists()
+        )
+        if not bag_dirs:
+            raise SystemExit(f"No valid bags found in {session_dir}")
+        print(f"[bag_to_lerobot] Found {len(bag_dirs)} bags in {session_dir}:")
+        for p in bag_dirs:
+            print(f"  {p.name}")
 
     export_bags_to_lerobot(
         bag_dirs=bag_dirs,

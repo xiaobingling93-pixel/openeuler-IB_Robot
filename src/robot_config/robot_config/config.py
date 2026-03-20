@@ -72,6 +72,7 @@ class ContractObservation:
 
     key: str
     topic: str
+    type: Optional[str] = None  # Explicit ROS message type (e.g. sensor_msgs/msg/PointCloud2)
     peripheral: Optional[str] = None  # References peripheral by name
     selector: Optional[Dict[str, Any]] = None
     image: Optional[Dict[str, Any]] = None
@@ -156,7 +157,8 @@ class RobotConfig:
         for obs in self.contract.observations:
             # Resolve peripheral if referenced
             image_meta = obs.image
-            topic_type = "sensor_msgs/msg/JointState"
+            # Prefer explicit type from YAML; fall back to inference
+            topic_type = obs.type or "sensor_msgs/msg/JointState"
 
             if obs.peripheral:
                 cam = self.get_camera(obs.peripheral)
