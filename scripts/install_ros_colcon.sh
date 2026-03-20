@@ -389,6 +389,7 @@ install_openeuler_ros_packages() {
         "ros-${ROS_DISTRO}-moveit-planners-ompl"
         "ros-${ROS_DISTRO}-joy"
         "ros-${ROS_DISTRO}-moveit-servo"
+        "ros-${ROS_DISTRO}-cv-bridge"
     )
 
     for pkg in "${ros_packages[@]}"; do
