@@ -6,6 +6,7 @@ models
 datasets
 logs
 venv
+tmp/
 
 # Python
 __pycache__/
