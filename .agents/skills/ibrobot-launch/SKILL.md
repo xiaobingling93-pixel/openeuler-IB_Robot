@@ -1,6 +1,6 @@
 ---
 name: ibrobot-launch
-description: Launches IB-Robot nodes with proper environment setup. Automatically builds the project first, then runs ros2 launch with all required environment variables. Use when you need to run or test the robot system.
+description: "Launches IB-Robot nodes with proper environment setup. Automatically builds the project first, then runs ros2 launch with all required environment variables. Use when you need to run or test the robot system."
 ---
 
 # IB-Robot Launch Skill
