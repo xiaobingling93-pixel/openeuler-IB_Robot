@@ -72,7 +72,7 @@ For root repository:
 5. If NOT "local commit only":
    - Execute `git push origin <branch>`.
    - **Get remote info**: Extract username and repo name via `git remote get-url origin`.
-   - **Generate GitCode PR link**: Format `https://gitcode.com/<username>/IB_Robot/merge_requests/new?source_branch=<current-branch>`.
+   - **Generate AtomGit PR link**: Format `https://atomgit.com/<username>/IB_Robot/merge_requests/new?source_branch=<current-branch>`.
    - **Output PR description**: Compose detailed PR description from commit message body.
 
 ## Common Commands Reference

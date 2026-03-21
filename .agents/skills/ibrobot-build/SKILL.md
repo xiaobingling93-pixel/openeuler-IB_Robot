@@ -1,6 +1,6 @@
 ---
 name: ibrobot-build
-description: Handles the specialized build and environment setup process for IB-Robot. Use when building, compiling, or running nodes in this workspace to ensure proper environment inheritance from .shrc_local and correct execution of build commands.
+description: "Handles the specialized build and environment setup process for IB-Robot. Use when building, compiling, or running nodes in this workspace to ensure proper environment inheritance from .shrc_local and correct execution of build commands."
 ---
 
 # IB-Robot Build & Environment Skill
@@ -11,7 +11,7 @@ This skill provides the mandatory procedure for building and running code in the
 
 **ALL commands in this skill MUST be executed from the IB-Robot project root directory!**
 
-The project root is: `/home/xqw/Research/IB_Robot`
+The project root is: `<project_root>`
 
 **Why?** The `.shrc_local` script uses relative paths and expects to be sourced from the project root. If you're not in the root directory:
 - `source .shrc_local` will fail with "No such file or directory"
@@ -20,7 +20,7 @@ The project root is: `/home/xqw/Research/IB_Robot`
 
 **Before executing ANY command in this skill:**
 ```bash
-cd /home/xqw/Research/IB_Robot
+cd <project_root>
 ```
 
 ## Core Mandate: Environment Inheritance
@@ -33,7 +33,7 @@ Every execution that depends on project environment variables (ROS 2 Humble, ven
 
 **Step 0: Change to project root (if not already there)**
 ```bash
-cd /home/xqw/Research/IB_Robot
+cd <project_root>
 ```
 
 Building does NOT require ROS_DOMAIN_ID, but needs PYTHONPATH and other environment setup:
@@ -53,7 +53,7 @@ source .shrc_local && colcon build --symlink-install --merge-install --packages-
 
 **Step 0: Change to project root (if not already there)**
 ```bash
-cd /home/xqw/Research/IB_Robot
+cd <project_root>
 ```
 
 Any `ros2 run` or `ros2 launch` command **MUST** include both environment setup AND ROS_DOMAIN_ID:
@@ -66,7 +66,7 @@ source .shrc_local && export ROS_DOMAIN_ID=42 && ros2 launch robot_config robot.
 
 **Step 0: Change to project root (if not already there)**
 ```bash
-cd /home/xqw/Research/IB_Robot
+cd <project_root>
 ```
 
 Any `ros2` command (topic list, node list, service call, etc.) also needs ROS_DOMAIN_ID:
