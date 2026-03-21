@@ -48,15 +48,28 @@ def is_valid_branch_name(name: str) -> bool:
         return False
 
 
+def get_best_base_ref(base_branch: str) -> str:
+    """智能解析最佳基准引用，优先使用远程分支"""
+    remotes = run_git(["remote"]).split()
+    
+    # 优先序: upstream -> origin -> local
+    if "upstream" in remotes:
+        return f"upstream/{base_branch}"
+    if "origin" in remotes:
+        return f"origin/{base_branch}"
+    return base_branch
+
+
 def get_commit_messages(branch: str, base_branch: str = "master") -> List[Dict]:
     """获取分支相对于基线的提交信息"""
+    base_ref = get_best_base_ref(base_branch)
+    log_format = "%H%n%s%n%b%n---COMMIT_END---"
+    
     try:
-        log_format = "%H%n%s%n%b%n---COMMIT_END---"
-        output = run_git(["log", f"{base_branch}..{branch}", f"--format={log_format}"])
+        output = run_git(["log", f"{base_ref}..{branch}", f"--format={log_format}"])
     except:
-        output = run_git(
-            ["log", f"origin/{base_branch}..{branch}", f"--format={log_format}"]
-        )
+        # 如果远程引用不存在，回退到本地
+        output = run_git(["log", f"{base_branch}..{branch}", f"--format={log_format}"])
 
     commits = []
     for block in output.split("---COMMIT_END---"):
@@ -77,19 +90,21 @@ def get_commit_messages(branch: str, base_branch: str = "master") -> List[Dict]:
 
 def get_changed_files(branch: str, base_branch: str = "master") -> List[str]:
     """获取变更文件列表"""
+    base_ref = get_best_base_ref(base_branch)
     try:
-        output = run_git(["diff", "--name-only", f"{base_branch}...{branch}"])
+        output = run_git(["diff", "--name-only", f"{base_ref}...{branch}"])
     except:
-        output = run_git(["diff", "--name-only", f"origin/{base_branch}...{branch}"])
+        output = run_git(["diff", "--name-only", f"{base_branch}...{branch}"])
     return [f for f in output.split("\n") if f.strip()]
 
 
 def get_diff_stats(branch: str, base_branch: str = "master") -> Dict:
     """获取 diff 统计信息"""
+    base_ref = get_best_base_ref(base_branch)
     try:
-        output = run_git(["diff", "--stat", f"{base_branch}...{branch}"])
+        output = run_git(["diff", "--stat", f"{base_ref}...{branch}"])
     except:
-        output = run_git(["diff", "--stat", f"origin/{base_branch}...{branch}"])
+        output = run_git(["diff", "--stat", f"{base_branch}...{branch}"])
 
     stats = {"files_changed": 0, "insertions": 0, "deletions": 0}
 
@@ -177,6 +192,7 @@ def main():
     parser.add_argument("--branch", type=str, help="源分支名")
     parser.add_argument("--base", type=str, default="master", help="目标分支名")
     parser.add_argument("--title", type=str, help="PR 标题")
+    parser.add_argument("--body", type=str, help="PR 描述")
     parser.add_argument(
         "--config", type=str, default="config.json", help="配置文件路径"
     )
@@ -187,7 +203,6 @@ def main():
         default="ai",
         help="AI模型名称，用于签名 (默认: ai)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="仅显示计划，不实际创建")
     args = parser.parse_args()
 
     try:
@@ -234,7 +249,7 @@ def main():
     )
 
     print(">>> 生成 PR 描述...")
-    description = generate_pr_description(
+    description = args.body or generate_pr_description(
         branch, commits, files, stats, args.base, args.ai_model
     )
 
@@ -260,7 +275,7 @@ def main():
 
     if answer not in ("y", "yes"):
         print(">>> 创建 PR...")
-        api = AtomGitClient(AtomGitConfig.from_json(args.config)
+        api = AtomGitClient(AtomGitConfig.from_json(args.config))
 
         try:
             pr = api.create_pull_request(
