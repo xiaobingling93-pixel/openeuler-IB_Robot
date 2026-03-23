@@ -8,7 +8,13 @@ This module handles:
 URDF building (xacro processing + camera injection) is in description.py.
 """
 
+import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
+
+import yaml
 from launch_ros.actions import Node
 
 from robot_config.utils import resolve_ros_path, parse_bool, validate_joint_config
@@ -83,11 +89,56 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
     # Validate joint configuration
     validate_joint_config(robot_config)
 
-    # Build URDF (xacro processing + camera injection) via description layer
-    _desc_result = generate_robot_description(robot_config, use_sim)
-    if _desc_result is None:
-        return nodes, spawners_dict, deferred_sim_spawners
-    _, robot_description = _desc_result
+    # Get URDF path
+    urdf_path = ros2_control_config.get("urdf_path")
+    if not urdf_path:
+        print("[robot_config] WARNING: No urdf_path specified")
+        return nodes, spawners_dict
+
+    urdf_path = resolve_ros_path(urdf_path)
+    print(f"[robot_config] URDF path: {urdf_path}")
+
+    if not Path(urdf_path).exists():
+        print(f"[robot_config] WARNING: URDF file not found at {urdf_path}")
+        return nodes, spawners_dict
+
+    # Get hardware parameters
+    port = ros2_control_config.get("port", "/dev/ttyACM0")
+    calib_file = resolve_ros_path(ros2_control_config.get("calib_file", ""))
+
+    # Handle reset_positions
+    reset_positions_dict = ros2_control_config.get("reset_positions", {})
+    reset_positions_json = json.dumps(reset_positions_dict)
+
+    # Run xacro to generate robot_description (URDF XML string)
+    xacro_executable = shutil.which('xacro')
+    if not xacro_executable:
+        print("[robot_config] ERROR: xacro executable not found on PATH")
+        return nodes, spawners_dict
+
+    xacro_cmd = (
+        f"{xacro_executable} {urdf_path}"
+        f" use_sim:={'true' if is_sim else 'false'}"
+        f" port:={port}"
+        f" calib_file:={calib_file}"
+        f" reset_positions:='{reset_positions_json}'"
+    )
+    print(f"[robot_config] Running xacro: {xacro_cmd}")
+
+    try:
+        result = subprocess.run(
+            xacro_cmd, shell=True,
+            capture_output=True, text=True, check=True,
+        )
+        robot_description_str = result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"[robot_config] ERROR running xacro: {e.stderr}")
+        raise
+
+    robot_description = {"robot_description": robot_description_str}
+
+    if is_sim:
+        robot_description["use_sim_time"] = True
 
     # Robot State Publisher
     nodes.append(Node(
@@ -130,10 +181,31 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         if controllers_config and Path(controllers_config).exists():
             print(f"[robot_config] Controllers config: {controllers_config}")
 
+            # Write robot_description to a temp YAML under the 'controller_manager'
+            # node name.  ros2_control_node internally creates a node called
+            # 'controller_manager', but launch writes dict params under the
+            # executable name ('ros2_control_node') — a namespace mismatch.
+            # Using a file with the correct key avoids the mismatch WITHOUT
+            # setting name= on the Node (which would add a global __node
+            # remapping that breaks child controller nodes).
+            cm_params_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.yaml', delete=False,
+                prefix='cm_robot_desc_',
+            )
+            yaml.dump(
+                {'controller_manager': {'ros__parameters': {
+                    'robot_description': robot_description_str,
+                }}},
+                cm_params_file,
+                default_flow_style=False,
+            )
+            cm_params_file.close()
+            print(f"[robot_config] Controller manager params: {cm_params_file.name}")
+
             nodes.append(Node(
                 package="controller_manager",
                 executable="ros2_control_node",
-                parameters=[controllers_config],
+                parameters=[cm_params_file.name, controllers_config],
                 remappings=[
                     ("~/robot_description", "/robot_description"),
                 ],
