@@ -205,6 +205,7 @@ def main():
     )
     parser.add_argument("--draft", action="store_true", help="创建为草稿 PR")
     parser.add_argument("--dry-run", action="store_true", help="仅显示计划，不实际创建")
+    parser.add_argument("-y", "--yes", action="store_true", help="自动确认创建 PR")
     parser.add_argument(
         "--ai-model",
         type=str,
@@ -277,12 +278,15 @@ def main():
         print("⚠ Dry run 模式，未创建 PR")
         sys.exit(0)
 
-    try:
-        answer = input("\n是否创建 PR？(y/n): ").strip().lower()
-    except:
-        answer = "n"
+    if args.yes:
+        answer = "y"
+    else:
+        try:
+            answer = input("\n是否创建 PR？(y/n): ").strip().lower()
+        except:
+            answer = "n"
 
-    if answer not in ("y", "yes"):
+    if answer in ("y", "yes"):
         print(">>> 创建 PR...")
         api = AtomGitClient(AtomGitConfig.from_json(args.config))
 
@@ -307,7 +311,9 @@ def main():
         except Exception as e:
             print(f"❌ 创建 PR 失败: {e}")
             sys.exit(1)
-        sys.exit(1)
+    else:
+        print(">>> 已取消创建 PR")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
