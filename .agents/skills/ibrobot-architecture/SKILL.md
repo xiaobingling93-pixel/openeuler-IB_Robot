@@ -1,6 +1,6 @@
 ---
 name: ibrobot-architecture
-description: "Deep knowledge of IB-Robot's architecture including Single Source of Truth pattern, Contract-Driven Design, and Control Mode Architecture. Use when working with robot_config, launch files, inference_service, action_dispatch, or tensormsg systems. Reference: https://deepwiki.com/wuxiaoqiang12/IB_Robot"
+description: "Provides deep knowledge of IB-Robot's architecture. Use when user needs to 'understand architecture', 'explain design', 'check SSOT', 'modify robot_config', 'check contract', 'architecture', '架构', '设计说明', '配置加载', '数据流', '契约设计'. Triggers for 'how does it work?', '架构设计', '系统原理', or when modifying core robot parameters and single source of truth files."
 ---
 
 # IB-Robot Architecture Skill

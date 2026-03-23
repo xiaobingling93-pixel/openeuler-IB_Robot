@@ -5,7 +5,7 @@ AtomGit Pull Request Creator
 自动创建 PR，从当前分支生成 PR 标题和描述
 
 用法：
-    python3 create_pr.py --branch <branch> [--title "标题"] [--dry-run]
+    python3 create_pr.py --branch <branch> --fork-owner <owner> [--title "标题"] [--dry-run]
 """
 
 import os
@@ -20,6 +20,7 @@ from urllib.parse import quote as url_quote
 
 
 from atomgit_sdk import AtomGitClient, AtomGitConfig
+
 
 
 def run_git(args: List[str], cwd: str = None) -> str:
@@ -51,7 +52,7 @@ def is_valid_branch_name(name: str) -> bool:
 def get_best_base_ref(base_branch: str) -> str:
     """智能解析最佳基准引用，优先使用远程分支"""
     remotes = run_git(["remote"]).split()
-    
+
     # 优先序: upstream -> origin -> local
     if "upstream" in remotes:
         return f"upstream/{base_branch}"
@@ -64,7 +65,7 @@ def get_commit_messages(branch: str, base_branch: str = "master") -> List[Dict]:
     """获取分支相对于基线的提交信息"""
     base_ref = get_best_base_ref(base_branch)
     log_format = "%H%n%s%n%b%n---COMMIT_END---"
-    
+
     try:
         output = run_git(["log", f"{base_ref}..{branch}", f"--format={log_format}"])
     except:
@@ -196,6 +197,13 @@ def main():
     parser.add_argument(
         "--config", type=str, default="config.json", help="配置文件路径"
     )
+    parser.add_argument(
+        "--fork-owner",
+        type=str,
+        required=True,
+        help="Fork 仓库的 owner（必需，通过 git remote -v 获取）",
+    )
+    parser.add_argument("--draft", action="store_true", help="创建为草稿 PR")
     parser.add_argument("--dry-run", action="store_true", help="仅显示计划，不实际创建")
     parser.add_argument(
         "--ai-model",
@@ -226,7 +234,8 @@ def main():
     print("=" * 60)
     print(f"源分支: {branch}")
     print(f"目标分支: {args.base}")
-    print(f"仓库: {config['atomgit']['owner']}/{config['atomgit']['repo']}")
+    print(f"目标仓库: {config['atomgit']['owner']}/{config['atomgit']['repo']}")
+    print(f"Fork owner: {args.fork_owner}")
     print()
 
     print(">>> 获取提交信息...")
@@ -235,7 +244,7 @@ def main():
 
     if not commits:
         print(f"❌ 在 {args.base} 和 {branch} 之间未找到提交")
-        print("   请确保你的分支与 origin/master 同步")
+        print("   请确保你的分支与 upstream/master 同步")
         sys.exit(1)
 
     print(">>> 获取变更文件...")
@@ -277,9 +286,15 @@ def main():
         print(">>> 创建 PR...")
         api = AtomGitClient(AtomGitConfig.from_json(args.config))
 
+        pr_head = f"{args.fork_owner}:{branch}"
+
         try:
             pr = api.create_pull_request(
-                title=title, body=description, head=branch, base=args.base
+                title=title,
+                body=description,
+                head=pr_head,
+                base=args.base,
+                draft=args.draft,
             )
             pr_number = pr.get("number")
             pr_url = api.get_pr_url(pr_number)

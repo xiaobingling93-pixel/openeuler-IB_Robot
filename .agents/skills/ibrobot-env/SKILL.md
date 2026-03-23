@@ -1,6 +1,6 @@
 ---
 name: ibrobot-env
-description: "Handles IB_Robot environment setup and command execution. Invoke BEFORE running any Python scripts, ROS 2 commands, or tests that require project dependencies. Ensures proper environment inheritance from .shrc_local."
+description: "Handles environment setup and command execution. Use BEFORE running any scripts or ROS 2 commands to 'setup environment', 'source .shrc_local', 'set ROS_DOMAIN_ID', '环境变量', '环境初始化', '初始化环境', 'fix import errors', 'ModuleNotFoundError', or 'PYTHONPATH issues'. Triggers whenever environment inheritance is required for correct execution."
 ---
 
 # IB_Robot Environment Skill

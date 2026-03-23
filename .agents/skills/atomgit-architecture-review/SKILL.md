@@ -1,6 +1,6 @@
 ---
 name: atomgit-architecture-review
-description: "AtomGit 架构审查工具。提取 PR 信息并提交架构合规审查评论。"
+description: "AtomGit 架构审查工具。当用户需要“架构审查”、“架构评审”、“check architecture”、“review architecture compliance”、“检查架构规范”、“符合设计支柱”或对指定 PR 进行架构维度扫描并提交检视意见时调用。适用于“审阅PR架构”、“架构合规性检查”等场景。"
 license: MIT
 ---
 
