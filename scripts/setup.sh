@@ -396,7 +396,17 @@ install_system_deps() {
             --ignore-src \
             --rosdistro=humble \
             -y -r \
-            --skip-keys "catkin roscpp lerobot trimesh[easy] simple-parsing cupy-cuda12x ctl_system_interface numpy_lessthan_2 ament_python feetech-servo-sdk pyserial"
+            --skip-keys=catkin \
+            --skip-keys=roscpp \
+            --skip-keys=lerobot \
+            --skip-keys=trimesh \
+            --skip-keys=simple-parsing \
+            --skip-keys=cupy-cuda12x \
+            --skip-keys=ctl_system_interface \
+            --skip-keys=numpy_lessthan_2 \
+            --skip-keys=ament_python \
+            --skip-keys=feetech-servo-sdk \
+            --skip-keys=pyserial
     else
         log_warn "Unknown package manager. Please ensure ROS 2 Humble dependencies are installed manually."
     fi
