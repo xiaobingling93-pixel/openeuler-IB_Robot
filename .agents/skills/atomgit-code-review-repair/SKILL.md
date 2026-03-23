@@ -1,6 +1,6 @@
 ---
 name: atomgit-code-review-repair
-description: "AtomGit PR 检视意见修复工具。响应别人对你代码的审查意见。"
+description: "AtomGit PR 检视意见修复工具。当用户收到评审意见并需要“修复PR”、“修复检视意见”、“fix review comments”、“apply fixes”、“回复评论”、“reply to review”或自动化闭环评审流程时使用。"
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: ibrobot-git-flow
-description: "Handles Git commit and push workflow for IB_Robot project and its submodule (libs/lerobot). Includes strict openEuler Embedded Commit Message compliance. Supports pushing root repo and submodule to their respective origin (personal fork) remotes."
+description: "Handles Git commit and push workflow with Euler compliance. Use when user asks to 'git commit', 'git push', '提交代码', '推送代码', 'git status', 'commit -s', 'DCO sign-off', 'check git message', 'euler compliance', '符合规范'. Triggers for 'push to fork', 'commit changes', '提交', '检查提交信息', or when preparing code for submission."
 ---
 
 # IB_Robot Git Workflow Guide

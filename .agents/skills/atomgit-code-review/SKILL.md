@@ -1,6 +1,6 @@
 ---
 name: atomgit-code-review
-description: "AtomGit 代码审查工具。提取 PR 信息并提交审查评论。"
+description: "AtomGit 代码审查工具。当用户需要“代码审查”、“代码评审”、“code review”、“PR review”、“审阅代码”、“检查Bug”、“logic check”、“发现错误”、“审视PR”或提交检视意见到 AtomGit 时使用。适用于“审阅 #123 号PR”、“检查代码逻辑”等指令。"
 license: MIT
 ---
 

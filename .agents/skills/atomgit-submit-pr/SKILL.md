@@ -1,6 +1,6 @@
 ---
 name: atomgit-submit-pr
-description: "AtomGit PR 提交工具。创建新 PR 或更新现有 PR 描述。"
+description: "AtomGit PR 提交工具。当用户需要“提交PR”、“创建合并请求”、“create pull request”、“submit PR”、“更新PR描述”、“update PR description”、“generate PR summary”或在功能开发完成后准备合入官方 upstream 仓库时调用。"
 license: MIT
 ---
 

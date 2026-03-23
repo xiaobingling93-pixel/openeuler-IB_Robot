@@ -1,6 +1,6 @@
 ---
 name: ibrobot-build
-description: "Handles the specialized build and environment setup process for IB-Robot. Use when building, compiling, or running nodes in this workspace to ensure proper environment inheritance from .shrc_local and correct execution of build commands."
+description: "Handles the specialized build and environment setup process. Use when user needs to 'build', 'compile', 'colcon build', 'build specific package', '编译', '构建', '解决编译错误', 'fix build errors', 'cb', 'cbp', or needs to refresh the workspace state after code changes. Triggers for 'compile code', '怎么编译', '项目构建', or build infrastructure issues."
 ---
 
 # IB-Robot Build & Environment Skill

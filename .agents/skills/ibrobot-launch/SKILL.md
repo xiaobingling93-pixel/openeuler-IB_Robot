@@ -1,6 +1,6 @@
 ---
 name: ibrobot-launch
-description: "Launches IB-Robot nodes with proper environment setup. Automatically builds the project first, then runs ros2 launch with all required environment variables. Use when you need to run or test the robot system."
+description: "Launches IB-Robot nodes with proper environment setup. Use when user wants to 'launch', 'run robot', 'start simulation', 'start system', '启动机器人', '运行仿真', '测试推理', 'test inference', '遥操作调试', 'teleop', 'start so101', or needs to run any robot configuration. Triggers for 'launch robot', 'bringup', '启动节点', or running hardware interfaces."
 ---
 
 # IB-Robot Launch Skill
