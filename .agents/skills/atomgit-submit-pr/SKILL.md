@@ -19,16 +19,38 @@ source .shrc_local
 这将把 `libs/atomgit_sdk/src` 添加到 PYTHONPATH
 使 skill 能够导入 AtomGit SDK。
 
+## ⚠️ 获取 Fork Owner（必需）
+
+在创建 PR 前，**必须**先通过 `git remote -v` 获取 fork owner：
+
+```bash
+git remote -v
+```
+
+输出示例：
+```
+origin    git@atomgit.com:YourName/IB_Robot.git (fetch)
+origin    git@atomgit.com:YourName/IB_Robot.git (push)
+upstream  git@atomgit.com:openEuler/IB_Robot.git (fetch)
+upstream  git@atomgit.com:openEuler/IB_Robot.git (push)
+```
+
+从中提取 fork owner（即个人仓库的用户名，如 `YourName`），然后通过 `--fork-owner` 参数传递给脚本。
+
 ## 快速使用
 
 ### 创建 PR
 
 ```bash
-# 自动从当前分支创建 PR
-python3 create_pr.py --branch feat/my-feature
+# 步骤1: 获取 fork owner
+git remote -v
+# 从输出中提取个人 fork 的 owner，如 BreezeWu
+
+# 步骤2: 创建 PR
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu
 
 # 指定标题和描述
-python3 create_pr.py --branch feat/my-feature --title "feat: add new feature" --body "Description..."
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: add new feature" --body "Description..."
 ```
 
 ### 生成 PR 描述
@@ -51,16 +73,21 @@ python3 generate_pr.py --pr 123 --update-pr
 创建新的 Pull Request。
 
 **参数**:
-- `--branch`: 分支名（必需）
+- `--branch`: 分支名（可选，默认当前分支）
+- `--fork-owner`: Fork 仓库的 owner（**必需**，通过 `git remote -v` 获取）
 - `--title`: PR 标题（可选，自动生成）
 - `--body`: PR 描述（可选，自动生成）
 - `--base`: 目标分支（默认：master）
-- `--draft`: 创建草稿 PR
+- `--draft`: 创建草稿 PR（可选）
 - `--dry-run`: 仅显示计划，不创建
 
 **示例**:
 ```bash
-python3 create_pr.py --branch feat/new-feature
+# 完整示例
+python3 create_pr.py --branch feat/new-feature --fork-owner BreezeWu
+
+# 指定标题
+python3 create_pr.py --branch feat/new-feature --fork-owner BreezeWu --title "feat: add new feature"
 ```
 
 ### generate_pr.py
