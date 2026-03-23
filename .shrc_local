@@ -14,7 +14,8 @@ fi
 # 3. 设置 PYTHONPATH
 # 确保优先使用 venv 和 libs 中的源码，使用绝对路径以支持跨目录调用
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
-export PYTHONPATH="${WORKSPACE_DIR}/libs/lerobot/src:${WORKSPACE_DIR}/libs/atomgit_sdk/src:${WORKSPACE_DIR}/venv/lib/python3.10/site-packages:${PYTHONPATH}"
+PYTHON_VER="$(python3 -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}")')"
+export PYTHONPATH="${WORKSPACE_DIR}/libs/lerobot/src:${WORKSPACE_DIR}/libs/atomgit_sdk/src:${WORKSPACE_DIR}/venv/lib/${PYTHON_VER}/site-packages:${PYTHONPATH}"
 
 # 4. 加载本地编译后的包 (如果已编译)
 if [ -f "${WORKSPACE_DIR}/install/setup.sh" ]; then
