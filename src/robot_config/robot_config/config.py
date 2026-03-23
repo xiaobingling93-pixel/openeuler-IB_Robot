@@ -103,6 +103,27 @@ class ContractExtensionConfig:
 
 
 @dataclass
+class VoiceASRConfig:
+    """Voice ASR node configuration managed by robot_config."""
+
+    enabled: bool = False
+    active_mode: str = "manual"
+    language: str = "zh"
+    model_path: str = ""
+    tokens_path: str = ""
+    provider: str = "cpu"
+    model_type: str = "auto"
+    max_recording_duration: float = 10.0
+    vad_sensitivity: float = 0.5
+    publish_partial: bool = True
+    output_topic: str = "/voice_command"
+    sample_rate: int = 16000
+    chunk_size: int = 512
+    buffer_seconds: float = 5.0
+    device_index: int = -1
+
+
+@dataclass
 class RobotConfig:
     """Unified robot configuration.
 
@@ -119,6 +140,7 @@ class RobotConfig:
     ros2_control: Ros2ControlConfig
     peripherals: List[CameraConfig] = field(default_factory=list)
     contract: ContractExtensionConfig = field(default_factory=ContractExtensionConfig)
+    voice_asr: VoiceASRConfig = field(default_factory=VoiceASRConfig)
 
     def get_camera(self, name: str) -> Optional[CameraConfig]:
         """Get camera configuration by name."""

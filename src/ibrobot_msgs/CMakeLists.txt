@@ -23,6 +23,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RecordEpisode.action"
   "action/RunPolicy.action"
   "action/DispatchInfer.action"
+  "srv/RecognizeFile.srv"
+  "srv/SetHotwords.srv"
   DEPENDENCIES std_msgs action_msgs builtin_interfaces
 )
 

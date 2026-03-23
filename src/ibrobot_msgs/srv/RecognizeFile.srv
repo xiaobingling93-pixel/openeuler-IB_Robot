@@ -1,0 +1,10 @@
+# Request
+string file_path          # 音频文件路径
+bool enable_vad           # 是否启用 VAD 分段
+---
+# Response
+bool success              # 是否成功
+string error_message      # 错误信息 (失败时)
+string[] results          # 识别结果数组 (分段时多个)
+float32[] timestamps      # 每段的时间戳 (开始时间)
+float32[] durations       # 每段的时长

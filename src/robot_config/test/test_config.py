@@ -24,7 +24,9 @@ def test_load_single_arm_config():
     assert config.name == "so101_single_arm"
     assert config.robot_type == "so_101"
     assert config.ros2_control.hardware_plugin == "so101_hardware/SO101SystemHardware"
-    assert len(config.peripherals) == 2
+    assert len(config.peripherals) == 3
+    assert config.voice_asr.enabled is False
+    assert config.voice_asr.output_topic == "/voice_command"
 
     # Check cameras
     top_cam = config.get_camera("top")
@@ -183,3 +185,25 @@ def test_get_all_cameras():
     assert len(cameras) == 2
     assert cameras[0].name == "cam1"
     assert cameras[1].name == "cam2"
+
+
+
+def test_validate_voice_asr_requires_model_path_when_enabled():
+    """Test validation catches enabled voice ASR without a model path."""
+    config = RobotConfig(
+        name="test_robot",
+        type="so101",
+        robot_type="so_101",
+        ros2_control=Ros2ControlConfig(
+            hardware_plugin="so101_hardware/SO101SystemHardware",
+            params={},
+        ),
+        contract=ContractExtensionConfig(
+            observations=[],
+            actions=[],
+        ),
+    )
+    config.voice_asr.enabled = True
+
+    errors = validate_config(config)
+    assert any("voice_asr.model_path" in error for error in errors)

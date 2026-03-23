@@ -27,6 +27,10 @@ from robot_config.launch_builders.moveit import (
     generate_moveit_nodes
 )
 
+from robot_config.launch_builders.voice_asr import (
+    generate_voice_asr_nodes
+)
+
 __all__ = [
     # Control
     'generate_ros2_control_nodes',
@@ -40,4 +44,6 @@ __all__ = [
     'generate_gazebo_nodes',
     # MoveIt
     'generate_moveit_nodes',
+    # Voice ASR
+    'generate_voice_asr_nodes',
 ]
