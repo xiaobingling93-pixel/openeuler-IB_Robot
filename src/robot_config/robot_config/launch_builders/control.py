@@ -6,12 +6,80 @@ This module handles:
 - Joint configuration validation (delegates to utils.py)
 """
 
+import json
 from pathlib import Path
 from launch_ros.actions import Node
-from launch.substitutions import Command, PathJoinSubstitution, FindExecutable
-from launch_ros.parameter_descriptions import ParameterValue
+import xacro as _xacro_lib
 
 from robot_config.utils import resolve_ros_path, parse_bool, validate_joint_config
+
+
+def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
+    """从 YAML peripherals 动态生成相机 link/joint/gazebo XML。
+
+    命名约定（与 simulation.py 的 ros_gz_bridge 路径对齐）：
+    - URDF link 名     = YAML frame_id（如 camera_top_frame）
+      → robot_state_publisher TF 帧名与图像消息 header.frame_id 一致
+    - Gazebo sensor 名 = {name}_camera（如 top_camera）
+      → 与 simulation.py 第 94 行 sensor_name 约定一致
+    - Gazebo topic     = {name}_camera/image
+      → 拼出 bridge 路径 .../sensor/{name}_camera/{name}_camera/image
+
+    固定相机（parent_frame=world/base）和随臂相机（parent_frame=gripper）
+    生成逻辑完全相同，区别仅在于 parent link 的值。
+    MuJoCo 使用的 <gazebo reference> 块会被忽略（不影响 MJCF 解析）。
+    """
+    parts = []
+    for periph in peripherals:
+        if periph.get("type") != "camera":
+            continue
+        name        = periph["name"]
+        frame_id    = periph.get("frame_id", f"camera_{name}_frame")
+        t           = periph.get("transform", {})
+        parent      = t.get("parent_frame", "world")
+        x           = t.get("x",     0.0)
+        y           = t.get("y",     0.0)
+        z           = t.get("z",     0.0)
+        roll        = t.get("roll",  0.0)
+        pitch       = t.get("pitch", 0.0)
+        yaw         = t.get("yaw",   0.0)
+        width       = periph.get("width",  640)
+        height      = periph.get("height", 480)
+        fps         = periph.get("fps",     30)
+        sensor_name = f"{name}_camera"
+
+        parts.append(f"""
+    <!-- {name} camera (generated from YAML peripherals) -->
+    <link name="{frame_id}">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.01"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+        </inertial>
+    </link>
+    <joint name="{name}_camera_joint" type="fixed">
+        <parent link="{parent}"/>
+        <child  link="{frame_id}"/>
+        <origin xyz="{x} {y} {z}" rpy="{roll} {pitch} {yaw}"/>
+    </joint>
+    <gazebo reference="{frame_id}">
+        <sensor type="camera" name="{sensor_name}">
+            <update_rate>{fps}</update_rate>
+            <camera>
+                <horizontal_fov>1.047</horizontal_fov>
+                <image>
+                    <width>{width}</width>
+                    <height>{height}</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip><near>0.1</near><far>100</far></clip>
+            </camera>
+            <always_on>true</always_on>
+            <visualize>true</visualize>
+            <topic>{sensor_name}/image</topic>
+        </sensor>
+    </gazebo>""")
+    return "\n".join(parts)
 
 
 def generate_controller_spawners(controller_names, use_sim=True, controller_manager_name="controller_manager"):
@@ -94,37 +162,35 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
     # Get hardware parameters
     port = ros2_control_config.get("port", "/dev/ttyACM0")
     calib_file = resolve_ros_path(ros2_control_config.get("calib_file", ""))
-    
+
     # Handle reset_positions
-    import json
     reset_positions_dict = ros2_control_config.get("reset_positions", {})
     reset_positions_json = json.dumps(reset_positions_dict)
 
-    # Generate robot_description using xacro
-    xacro_args = [
-        PathJoinSubstitution([FindExecutable(name="xacro")]),
-        " ",
-        urdf_path,
-        " ",
-        "use_sim:=",
-        "true" if is_sim else "false",
-        " ",
-        "port:=",
-        port,
-        " ",
-        "calib_file:=",
-        calib_file,
-        " ",
-        "reset_positions:=",
-        f"'{reset_positions_json}'",
-    ]
+    # Process base URDF via Python xacro library (cameras excluded from xacro)
+    xacro_mappings = {
+        'use_sim': 'true' if is_sim else 'false',
+        'port': port,
+        'calib_file': calib_file,
+        'reset_positions': f"'{reset_positions_json}'",
+    }
+    try:
+        doc = _xacro_lib.process_file(urdf_path, mappings=xacro_mappings)
+        base_urdf = doc.toxml()
+    except Exception as e:
+        print(f"[robot_config] ERROR: xacro processing failed: {e}")
+        return nodes, spawners_dict
 
-    robot_description_content = ParameterValue(
-        Command(xacro_args),
-        value_type=str
-    )
-    robot_description = {"robot_description": robot_description_content}
+    # Dynamically generate camera URDF from YAML peripherals and inject
+    peripherals = robot_config.get("peripherals", [])
+    cameras_xml = _build_cameras_urdf_from_yaml(peripherals)
+    if cameras_xml:
+        full_urdf = base_urdf.replace("</robot>", cameras_xml + "\n</robot>", 1)
+        print(f"[robot_config] Injected {sum(1 for p in peripherals if p.get('type') == 'camera')} camera(s) into URDF from YAML")
+    else:
+        full_urdf = base_urdf
 
+    robot_description = {"robot_description": full_urdf}
     if is_sim:
         robot_description["use_sim_time"] = True
 

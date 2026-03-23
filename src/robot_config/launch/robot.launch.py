@@ -232,7 +232,7 @@ def launch_setup(context, *args, **kwargs):
             print(f"[robot_config] Added {len(virtual_nodes)} virtual camera relays")
 
         # Static TF publishers
-        tf_nodes = generate_tf_nodes(robot_config)
+        tf_nodes = generate_tf_nodes(robot_config, use_sim)
         actions.extend(tf_nodes)
         print(f"[robot_config] Added {len(tf_nodes)} TF nodes")
     except Exception as e:

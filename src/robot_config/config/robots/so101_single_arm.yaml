@@ -136,6 +136,7 @@ robot:
       width: 640
       height: 480
       fps: 30
+      fovy: 70          # vertical field of view (degrees), used by MuJoCo
       pixel_format: mjpeg2rgb
       frame_id: camera_top_frame
       optical_frame_id: camera_top_optical_frame
@@ -158,6 +159,7 @@ robot:
       width: 640
       height: 480
       fps: 60
+      fovy: 60          # vertical field of view (degrees), used by MuJoCo
       pixel_format: mjpeg2rgb
       frame_id: camera_wrist_frame
       optical_frame_id: camera_wrist_optical_frame
@@ -179,6 +181,7 @@ robot:
       width: 640
       height: 480
       fps: 30
+      fovy: 60          # vertical field of view (degrees), used by MuJoCo
       pixel_format: bgr8
       enable_pointcloud: false
       align_depth: true
@@ -193,6 +196,14 @@ robot:
         roll: 0.0
         pitch: 0.0
         yaw: 0.0
+
+  # ============================================
+  # Simulation Configuration
+  # ============================================
+  simulation:
+    platform: gazebo        # "gazebo" | "mujoco"
+    scene: null             # null = 不加载场景；或填场景名如 "table_top"
+    sim_models_pkg: sim_models
 
   # IB-Robot contract integration
   contract:
@@ -309,7 +320,7 @@ robot:
     devices:
       - name: "so101_leader"
         type: "leader_arm"
-        port: "/dev/ttyACM1"
+        port: "/dev/ttyACM3"
         calib_file: "$(env HOME)/.calibrate/so101_leader_calibrate.json"
     safety:
       joint_limits:
