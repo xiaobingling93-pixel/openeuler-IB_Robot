@@ -53,17 +53,27 @@ python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu
 python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: add new feature" --body "Description..."
 ```
 
-### 生成 PR 描述
+### 生成/更新 PR 描述 (Agent 驱动)
 
+当需要为已有 PR 生成高质量描述时，遵循以下 Agent 工作流：
+
+**步骤 1: 提取 PR 上下文**
 ```bash
-# 从 git 提交生成 PR 描述
-python3 generate_pr.py --branch feat/my-feature
-
-# 提取 PR 信息（用于更新 PR）
 python3 generate_pr.py --pr 123 --fetch-info
+```
+Agent 会读取生成的 `tmp/pr_123_context.json`，其中包含所有提交记录、修改文件以及代码 Diff (patch)。
 
-# 更新 PR 描述
-python3 generate_pr.py --pr 123 --update-pr
+**步骤 2: Agent 分析与同步**
+Agent 分析完 Diff 后，会生成一份 `description.json`:
+```json
+{
+  "title": "feat: 新功能标题",
+  "description": "详细的变更逻辑说明..."
+}
+```
+然后运行同步命令：
+```bash
+python3 generate_pr.py --pr 123 --update-pr description.json
 ```
 
 ## API 说明
@@ -92,21 +102,17 @@ python3 create_pr.py --branch feat/new-feature --fork-owner BreezeWu --title "fe
 
 ### generate_pr.py
 
-生成或更新 PR 描述。
+管理和维护已有 PR 的数据。
 
 **模式**:
-1. `--branch`: 生成 PR 描述（默认）
-2. `--pr --fetch-info`: 提取 PR 信息
-3. `--pr --update-pr`: 更新 PR 描述
+1. `--pr <NUM> --fetch-info`: 提取 PR 的完整上下文 (提交、文件、Diff)，Agent 学习用。
+2. `--pr <NUM> --update-pr <JSON>`: 将 Agent 生成的描述同步到服务器。
 
-**示例**:
-```bash
-# 生成描述
-python3 generate_pr.py --branch feat/new-feature
-
-# 更新 PR #123 的描述
-python3 generate_pr.py --pr 123 --update-pr
-```
+**参数**:
+- `--pr`: PR 编号 (**必需**)
+- `--output-dir`: JSON 输出目录 (默认: ./tmp)
+- `--ai-model`: 签名使用的 AI 名称 (默认: agent)
+- `--dry-run`: 预览生成的描述但不执行更新
 
 ## PR 描述格式
 
