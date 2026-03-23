@@ -78,7 +78,7 @@ from robot_config.utils import resolve_ros_path, parse_bool
 # Import node generators from launch_builders modules
 from robot_config.launch_builders.control import generate_ros2_control_nodes
 from robot_config.launch_builders.perception import generate_camera_nodes, generate_tf_nodes
-from robot_config.launch_builders.simulation import generate_gazebo_nodes
+from robot_config.launch_builders.sim_backend import get_sim_backend
 from robot_config.launch_builders.execution import generate_execution_nodes
 from robot_config.launch_builders.teleop import generate_teleop_nodes
 from robot_config.launch_builders.recording import generate_recording_nodes
@@ -208,10 +208,21 @@ def launch_setup(context, *args, **kwargs):
     # ========== 5. Generate Simulation Nodes (only in simulation mode) ==========
     if use_sim:
         print(f"[robot_config] ========== Generating Simulation Nodes ==========")
+        sim_platform = robot_config.get('simulation', {}).get('platform', 'gazebo')
+        print(f"[robot_config] Sim platform: {sim_platform}")
         try:
-            gazebo_nodes = generate_gazebo_nodes(robot_config)
-            actions.extend(gazebo_nodes)
-            print(f"[robot_config] Added {len(gazebo_nodes)} simulation nodes")
+            sim_adapter = get_sim_backend(sim_platform)
+            sim_nodes = sim_adapter.start_backend(robot_config)
+            sim_nodes += sim_adapter.spawn_peripheral_bridges(
+                robot_config.get("peripherals", [])
+            )
+            actions.extend(sim_nodes)
+            print(f"[robot_config] Added {len(sim_nodes)} simulation nodes ({sim_platform})")
+        except NotImplementedError:
+            print(
+                f"[robot_config] WARNING: sim platform '{sim_platform}' not implemented yet, "
+                f"skipping simulation nodes (set simulation.platform: gazebo to use Gazebo)"
+            )
         except Exception as e:
             print(f"[robot_config] ERROR generating simulation nodes: {e}")
             raise
