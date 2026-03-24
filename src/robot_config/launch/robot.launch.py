@@ -12,6 +12,11 @@ Controllers are automatically spawned in both simulation and real hardware modes
 - Simulation mode: Uses Gazebo's gz_ros2_control plugin for controller_manager
 - Hardware mode: Starts ros2_control_node for controller_manager
 
+Expected ROS interfaces (depends on ``control_mode`` and options):
+- ``control_mode:=moveit_planning`` (and MoveIt enabled): planning/move_group topics such as ``/planning_scene``; not started for ``model_inference`` or ``teleop`` alone.
+- Gazebo sim + cameras: bridged topics ``/camera/{top,wrist,front}/image_raw`` and ``.../camera_info`` (names from YAML ``peripherals[].name``), not raw Ignition link paths.
+- After controller spawners succeed: ``/arm_position_controller/commands``, ``/gripper_position_controller/commands``, ``/joint_states``, etc.
+
 **CRITICAL**: This workspace uses ROS_DOMAIN_ID=<ID> to avoid conflicts with other ROS 2 systems.
 Always set this before launching:
 ```bash
@@ -61,6 +66,7 @@ Launch Arguments:
     record_mode: Recording mode - 'continuous' (default, all-in-one bag) or 'episodic' (triggered episode-by-episode, requires manual record_cli in separate terminal)
 """
 
+import os
 import yaml
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
@@ -69,6 +75,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
     RegisterEventHandler,
+    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 
@@ -153,6 +160,16 @@ def launch_setup(context, *args, **kwargs):
     print(f"[robot_config] auto_start_controllers: {auto_start_controllers}")
     print(f"[robot_config] control_mode: {control_mode_override if control_mode_override else '(from config)'}")
 
+    _ros_domain = os.environ.get("ROS_DOMAIN_ID", "")
+    if _ros_domain == "":
+        print(
+            "[robot_config] NOTE: ROS_DOMAIN_ID unset (DDS default domain 0). "
+            "In shells running ``ros2 topic/node/service``, use ``source install/setup.bash`` "
+            "and the same ROS_DOMAIN_ID as this launch."
+        )
+    else:
+        print(f"[robot_config] ROS_DOMAIN_ID={_ros_domain} (match this in other terminals for CLI tools)")
+
     # ========== 2. Load robot configuration ==========
     try:
         robot_config = load_robot_config(
@@ -197,8 +214,11 @@ def launch_setup(context, *args, **kwargs):
 
     # ========== 4. Generate Control System Nodes ==========
     print(f"[robot_config] ========== Generating Control Nodes ==========")
+    deferred_sim_spawners = []
     try:
-        control_nodes, spawners_dict = generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers)
+        control_nodes, spawners_dict, deferred_sim_spawners = generate_ros2_control_nodes(
+            robot_config, use_sim, auto_start_controllers
+        )
         actions.extend(control_nodes)
         print(f"[robot_config] Added {len(control_nodes)} control nodes")
     except Exception as e:
@@ -206,13 +226,14 @@ def launch_setup(context, *args, **kwargs):
         raise
 
     # ========== 5. Generate Simulation Nodes (only in simulation mode) ==========
+    gz_create_entity = None
     if use_sim:
         print(f"[robot_config] ========== Generating Simulation Nodes ==========")
         sim_platform = robot_config.get('simulation', {}).get('platform', 'gazebo')
         print(f"[robot_config] Sim platform: {sim_platform}")
         try:
             sim_adapter = get_sim_backend(sim_platform)
-            sim_nodes = sim_adapter.start_backend(robot_config)
+            sim_nodes, gz_create_entity = sim_adapter.start_backend(robot_config)
             sim_nodes += sim_adapter.spawn_peripheral_bridges(
                 robot_config.get("peripherals", [])
             )
@@ -226,6 +247,28 @@ def launch_setup(context, *args, **kwargs):
         except Exception as e:
             print(f"[robot_config] ERROR generating simulation nodes: {e}")
             raise
+
+    if deferred_sim_spawners:
+        if use_sim and gz_create_entity is not None:
+            print(
+                "[robot_config] Scheduling controller spawners after ros_gz_sim create exits "
+                "(+3s for gz_ros2_control to initialize)"
+            )
+            actions.append(
+                RegisterEventHandler(
+                    event_handler=OnProcessExit(
+                        target_action=gz_create_entity,
+                        on_exit=[
+                            TimerAction(
+                                period=3.0,
+                                actions=deferred_sim_spawners,
+                            )
+                        ],
+                    )
+                )
+            )
+        else:
+            actions.extend(deferred_sim_spawners)
 
     # ========== 6. Generate Perception Nodes ==========
     print(f"[robot_config] ========== Generating Perception Nodes ==========")
@@ -308,10 +351,11 @@ def launch_setup(context, *args, **kwargs):
             
             if jsb_spawner:
                 print(f"[robot_config] Delaying MoveIt nodes until joint_state_broadcaster_spawner exits...")
+                _moveit_nodes = moveit_nodes  # capture for lambda closure
                 actions.append(RegisterEventHandler(
                     event_handler=OnProcessExit(
                         target_action=jsb_spawner,
-                        on_exit=moveit_nodes,
+                        on_exit=lambda event, context: _moveit_nodes,
                     )
                 ))
             else:

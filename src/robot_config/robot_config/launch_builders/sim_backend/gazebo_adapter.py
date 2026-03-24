@@ -11,13 +11,13 @@ This will be fixed in T3.
 import os
 from pathlib import Path
 
-from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-from robot_config.utils import resolve_ros_path
+from robot_config.utils import resolve_ros_path, parse_bool
 from .base_adapter import SimBackendAdapter
 
 
@@ -29,16 +29,19 @@ class GazeboAdapter(SimBackendAdapter):
     - Gazebo server and GUI launch via ros_gz_sim
     - Robot entity creation (spawn from /robot_description topic)
     - Clock bridge (/clock)
-    - Joint state bridge (/world/demo/model/.../joint_state)
+    - Joint state bridge (/world/<world_name>/model/.../joint_state)
     - Camera image and camera_info bridges per peripheral
     """
 
-    def start_backend(self, robot_config: dict) -> list:
+    def start_backend(self, robot_config: dict) -> tuple:
         """Launch Gazebo and core infrastructure.
 
         Sets environment variables, spawns the robot entity, and starts
         clock + joint state bridges. Camera bridges are handled separately
         by spawn_peripheral_bridges().
+
+        Returns:
+            (actions, create_entity_node) for ``OnProcessExit``-triggered spawners.
         """
         actions = []
         ros2_control_config = robot_config.get("ros2_control")
@@ -75,6 +78,23 @@ class GazeboAdapter(SimBackendAdapter):
             actions.append(SetEnvironmentVariable('GAZEBO_MODEL_PATH', combined_model))
             actions.append(SetEnvironmentVariable('GZ_SIM_MODEL_PATH', combined_model))
 
+        # ---- Optional GUI / EGL workarounds ----
+        # Symptom: gray/empty 3D view while physics and ROS topics work; log may show
+        #   libEGL warning: egl: failed to create dri2 screen
+        # Enable via robot YAML ``gazebo_gui`` (see so101_single_arm.yaml).
+        gz_gui = robot_config.get("gazebo_gui") or {}
+        qt_platform = gz_gui.get("qt_platform") or robot_config.get("gazebo_qt_platform")
+        if qt_platform:
+            actions.append(SetEnvironmentVariable("QT_QPA_PLATFORM", str(qt_platform)))
+            print(f"[robot_config] Gazebo GUI: QT_QPA_PLATFORM={qt_platform}")
+        libgl_sw = gz_gui.get("libgl_always_software", robot_config.get("gazebo_libgl_always_software"))
+        if parse_bool(libgl_sw, default=False):
+            actions.append(SetEnvironmentVariable("LIBGL_ALWAYS_SOFTWARE", "1"))
+            print(
+                "[robot_config] Gazebo GUI: LIBGL_ALWAYS_SOFTWARE=1 "
+                "(software GL; set gazebo_gui.libgl_always_software: false if GPU view works)"
+            )
+
         # ---- World file resolution ----
         world_file = robot_config.get("world_file", "")
         if not world_file:
@@ -86,18 +106,28 @@ class GazeboAdapter(SimBackendAdapter):
         if not Path(world_path).exists():
             print(f"[robot_config] WARNING: World file not found at {world_path}")
 
+        # Must match <world name="..."> inside the loaded .world/.sdf (simulation.world uses "demo").
+        # ros_gz_sim create: if -world is omitted, it picks worlds_msg.data(0) from /gazebo/worlds
+        # (order not guaranteed) — entity can end up in the wrong world. Always pass -world explicitly.
+        gazebo_world_name = robot_config.get("gazebo_world_name", "demo")
+        print(f"[robot_config] Gazebo world name (create + bridges): {gazebo_world_name}")
+
         # ---- Entity creation (spawn robot from /robot_description) ----
+        # gflags names use underscores (see `ros2 run ros_gz_sim create --help`):
+        #   -allow_renaming   NOT -allow-renaming (latter is not a valid flag).
+        create_args = [
+            '-world', gazebo_world_name,
+            '-name', robot_config.get("name", "so101"),
+            '-allow_renaming=true',
+            '-topic', '/robot_description',
+            '-x', str(robot_config.get("initial_pose_x", 0.0)),
+            '-y', str(robot_config.get("initial_pose_y", 0.0)),
+            '-z', str(robot_config.get("initial_pose_z", 0.0)),
+        ]
         create_entity = Node(
             package='ros_gz_sim',
             executable='create',
-            arguments=[
-                '-name', robot_config.get("name", "so101"),
-                '-allow-renaming',
-                '-topic', '/robot_description',
-                '-x', str(robot_config.get("initial_pose_x", 0.0)),
-                '-y', str(robot_config.get("initial_pose_y", 0.0)),
-                '-z', str(robot_config.get("initial_pose_z", 0.0)),
-            ],
+            arguments=create_args,
             output='screen',
         )
 
@@ -114,15 +144,13 @@ class GazeboAdapter(SimBackendAdapter):
             package='ros_gz_bridge',
             executable='parameter_bridge',
             arguments=[
-                f'/world/demo/model/{robot_config.get("name", "so101")}'
+                f'/world/{gazebo_world_name}/model/{robot_config.get("name", "so101")}'
                 f'/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model'
             ],
             output='screen',
         )
 
-        actions.extend([create_entity, clock_bridge, joint_state_bridge])
-
-        # ---- Gazebo server + GUI ----
+        # ---- Gazebo server + GUI (must be listed before spawn; see below) ----
         gz_args = ""
         if Path(world_path).exists():
             gz_args = f"-r {world_path}"
@@ -139,9 +167,31 @@ class GazeboAdapter(SimBackendAdapter):
             ),
             launch_arguments={'gz_args': gz_args}.items(),
         )
-        actions.append(gazebo_launch)
 
-        return actions
+        # Spawn order: start Gazebo first, then bridges, then delayed create.
+        # Previously create ran before gz_sim in the action list; all processes still
+        # start in parallel, so the entity could be requested before the world is
+        # ready (intermittent empty world / missing arm). A short launch-side
+        # delay lets gz load the world before ros_gz_sim create injects the model.
+        spawn_delay_s = float(robot_config.get("gazebo_spawn_delay_sec", 4.0))
+        print(
+            f"[robot_config] Gazebo spawn: gz first, then spawn after {spawn_delay_s}s "
+            "(override with robot.gazebo_spawn_delay_sec in YAML)"
+        )
+        print(f"[robot_config] ros_gz_sim create argv: {create_args}")
+
+        actions.extend([
+            gazebo_launch,
+            clock_bridge,
+            joint_state_bridge,
+            TimerAction(period=spawn_delay_s, actions=[create_entity]),
+        ])
+
+        # Store model name for use by spawn_peripheral_bridges()
+        self._model_name = robot_config.get("name", "so101")
+        self._gazebo_world_name = gazebo_world_name
+
+        return actions, create_entity
 
     def load_scene(self, scene_file_path: str) -> list:
         """Stub: scene loading for Gazebo (T5 implementation)."""
@@ -153,56 +203,32 @@ class GazeboAdapter(SimBackendAdapter):
         return []
 
     def spawn_peripheral_bridges(self, peripherals: list) -> list:
-        """Create ros_gz_bridge nodes for camera topics.
+        """Create ros_gz_bridge nodes for peripheral topics.
 
-        Builds one image bridge and one camera_info bridge per camera
-        peripheral. Bridge topic path is the raw Gazebo sensor path;
-        remapping to /camera/{name}/image_raw is a T3 task.
+        Delegates to sim_peripheral_bridge.generate_peripheral_sim_bridges()
+        which maps each peripheral type to the correct bridge nodes and
+        remaps Gazebo sensor topics to the ROS naming contract:
+          /camera/{name}/image_raw
+          /camera/{name}/camera_info
+
+        Requires start_backend() to have been called first (sets _model_name).
+
+        Args:
+            peripherals: List of peripheral dicts from robot_config["peripherals"].
+
+        Returns:
+            List of ros_gz_bridge Node actions.
         """
-        actions = []
-        camera_bridges = []
-
-        for periph in peripherals:
-            if periph.get("type") == "camera":
-                name = periph["name"]
-                camera_bridges.append({
-                    "name": name,
-                    "sensor_name": f"{name}_camera",
-                })
-
-        if camera_bridges:
-            print(f"[robot_config] Gazebo: Creating {len(camera_bridges)} camera bridge(s)")
-
-        for bridge in camera_bridges:
-            sensor_name = bridge['sensor_name']
-            # NOTE: model_name is not available here; using sensor_name as link proxy.
-            # This path format matches what _build_cameras_urdf_from_yaml injects.
-            # T3 will add proper remapping to /camera/{name}/image_raw.
-            print(f"[robot_config]   Camera bridge: {bridge['name']} -> sensor: {sensor_name}")
-
-            actions.append(Node(
-                package='ros_gz_bridge',
-                executable='parameter_bridge',
-                arguments=[
-                    f'/world/demo/model/so101/link/{sensor_name}_link'
-                    f'/sensor/{sensor_name}/{sensor_name}/image'
-                    f'@sensor_msgs/msg/Image[gz.msgs.Image'
-                ],
-                output='screen',
-            ))
-
-            actions.append(Node(
-                package='ros_gz_bridge',
-                executable='parameter_bridge',
-                arguments=[
-                    f'/world/demo/model/so101/link/{sensor_name}_link'
-                    f'/sensor/{sensor_name}/{sensor_name}/camera_info'
-                    f'@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'
-                ],
-                output='screen',
-            ))
-
-        return actions
+        from robot_config.launch_builders.sim_peripheral_bridge import (
+            generate_peripheral_sim_bridges,
+        )
+        model_name = getattr(self, "_model_name", "so101")
+        world_name = getattr(self, "_gazebo_world_name", "demo")
+        print(
+            f"[robot_config] Gazebo: spawning peripheral bridges "
+            f"(world: {world_name}, model: {model_name})"
+        )
+        return generate_peripheral_sim_bridges(peripherals, model_name, world_name)
 
     def update_object_pose(self, object_name: str, pose) -> None:
         """[Reserved for v1] Runtime object pose update via Gazebo service."""

@@ -1,10 +1,13 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+    <!-- Absolute path set at launch (gz_ros2_control); fallback keeps install-time find. -->
+    <xacro:arg name="gz_ros2_control_parameters_file" default="$(find so101_hardware)/config/so101_controllers.yaml"/>
+
     <!-- ROS 2 Control -->
     <gazebo>
         <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-            <parameters>$(find so101_hardware)/config/so101_controllers.yaml</parameters>
+            <parameters>$(arg gz_ros2_control_parameters_file)</parameters>
         </plugin>
     </gazebo>
 

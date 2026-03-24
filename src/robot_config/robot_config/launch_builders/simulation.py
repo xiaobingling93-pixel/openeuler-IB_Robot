@@ -29,6 +29,6 @@ def generate_gazebo_nodes(robot_config: dict) -> list:
         List of launch actions for Gazebo simulation.
     """
     adapter = get_sim_backend("gazebo")
-    actions = adapter.start_backend(robot_config)
+    actions, _ = adapter.start_backend(robot_config)
     actions += adapter.spawn_peripheral_bridges(robot_config.get("peripherals", []))
     return actions

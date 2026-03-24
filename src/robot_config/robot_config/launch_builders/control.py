@@ -128,18 +128,22 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         auto_start_controllers: Whether to automatically start controllers (string or bool)
 
     Returns:
-        Tuple: (List of Node actions, Dictionary of spawner nodes)
+        Tuple: (nodes, spawners_dict, deferred_sim_spawners)
+        In Gazebo simulation, controller spawners are returned in
+        ``deferred_sim_spawners`` (not included in ``nodes``) so launch can
+        start them after ``ros_gz_sim create`` exits.
     """
     is_sim = parse_bool(use_sim, default=False)
     is_auto_start = parse_bool(auto_start_controllers, default=True)
 
     nodes = []
     spawners_dict = {}
+    deferred_sim_spawners = []
     ros2_control_config = robot_config.get("ros2_control")
 
     if not ros2_control_config:
         print("[robot_config] No ros2_control configuration found")
-        return nodes, spawners_dict
+        return nodes, spawners_dict, deferred_sim_spawners
 
     print("[robot_config] Creating ros2_control nodes")
 
@@ -150,14 +154,14 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
     urdf_path = ros2_control_config.get("urdf_path")
     if not urdf_path:
         print("[robot_config] WARNING: No urdf_path specified")
-        return nodes, spawners_dict
+        return nodes, spawners_dict, deferred_sim_spawners
 
     urdf_path = resolve_ros_path(urdf_path)
     print(f"[robot_config] URDF path: {urdf_path}")
 
     if not Path(urdf_path).exists():
         print(f"[robot_config] WARNING: URDF file not found at {urdf_path}")
-        return nodes, spawners_dict
+        return nodes, spawners_dict, deferred_sim_spawners
 
     # Get hardware parameters
     port = ros2_control_config.get("port", "/dev/ttyACM0")
@@ -174,12 +178,16 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         'calib_file': calib_file,
         'reset_positions': f"'{reset_positions_json}'",
     }
+    if is_sim:
+        _gz_ctrl_yaml = resolve_ros_path("$(find so101_hardware)/config/so101_controllers.yaml")
+        if Path(_gz_ctrl_yaml).exists():
+            xacro_mappings["gz_ros2_control_parameters_file"] = str(Path(_gz_ctrl_yaml).resolve())
     try:
         doc = _xacro_lib.process_file(urdf_path, mappings=xacro_mappings)
         base_urdf = doc.toxml()
     except Exception as e:
         print(f"[robot_config] ERROR: xacro processing failed: {e}")
-        return nodes, spawners_dict
+        return nodes, spawners_dict, deferred_sim_spawners
 
     # Dynamically generate camera URDF from YAML peripherals and inject
     peripherals = robot_config.get("peripherals", [])
@@ -253,17 +261,15 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
                     if i < len(spawners):
                         spawners_dict[name] = spawners[i]
     else:
-        # Simulation mode
+        # Simulation mode — spawners run after Gazebo model insert (robot.launch.py)
         print("[robot_config] Simulation mode: Gazebo provides controller_manager")
-        print(f"[robot_config] Controllers to spawn: {controller_names}")
+        print(f"[robot_config] Controllers to spawn (deferred until after gz spawn): {controller_names}")
 
         if is_auto_start and controller_names:
-            spawners = generate_controller_spawners(controller_names, use_sim=True)
-            nodes.extend(spawners)
-            print(f"[robot_config] Added {len(spawners)} controller spawners")
-            # Store spawners in dict
+            deferred_sim_spawners = generate_controller_spawners(controller_names, use_sim=True)
+            print(f"[robot_config] Deferred {len(deferred_sim_spawners)} controller spawners")
             for i, name in enumerate(controller_names):
-                if i < len(spawners):
-                    spawners_dict[name] = spawners[i]
+                if i < len(deferred_sim_spawners):
+                    spawners_dict[name] = deferred_sim_spawners[i]
 
-    return nodes, spawners_dict
+    return nodes, spawners_dict, deferred_sim_spawners

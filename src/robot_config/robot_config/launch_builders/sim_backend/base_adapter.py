@@ -16,6 +16,7 @@ Architecture:
 """
 
 from abc import ABC, abstractmethod
+from typing import Any, Tuple
 
 
 class SimBackendAdapter(ABC):
@@ -26,7 +27,7 @@ class SimBackendAdapter(ABC):
     """
 
     @abstractmethod
-    def start_backend(self, robot_config: dict) -> list:
+    def start_backend(self, robot_config: dict) -> Tuple[list, Any]:
         """Launch the simulator process and core infrastructure.
 
         Includes: simulator server + GUI, entity spawning, clock bridge,
@@ -37,8 +38,10 @@ class SimBackendAdapter(ABC):
             robot_config: Full robot configuration dict loaded from YAML.
 
         Returns:
-            List of launch actions (Node, IncludeLaunchDescription,
-            SetEnvironmentVariable, etc.)
+            (actions, gz_create_entity_node)
+            - actions: launch actions (Node, IncludeLaunchDescription, …)
+            - gz_create_entity_node: the ros_gz_sim ``create`` Node (Gazebo only),
+              for OnProcessExit → delayed controller spawners; ``None`` if N/A.
         """
 
     @abstractmethod
@@ -75,15 +78,15 @@ class SimBackendAdapter(ABC):
     def spawn_peripheral_bridges(self, peripherals: list) -> list:
         """Create topic bridge nodes for each peripheral device.
 
-        For Gazebo, ros_gz_bridge nodes relay camera images from the
-        Gazebo topic namespace to the ROS topic namespace expected by
-        the inference pipeline (/camera/{name}/image_raw).
+        For Gazebo, ros_gz_bridge nodes remap the raw Gazebo sensor path
+        (e.g. /world/demo/model/.../sensor/top_camera/top_camera/image) to
+        the ROS topic naming contract:
+          /camera/{name}/image_raw
+          /camera/{name}/camera_info
+        where {name} is YAML peripherals[].name.
 
-        For MuJoCo, mujoco_ros2_control publishes ROS topics directly,
-        so no bridge nodes are needed and this returns [].
-
-        Topic naming note: The Gazebo bridge path contains a known naming
-        discrepancy (T3 will fix the remapping to /camera/{name}/image_raw).
+        For MuJoCo, mujoco_ros2_control publishes ROS topics directly and
+        is configured to use the same naming contract, so this returns [].
 
         Args:
             peripherals: List of peripheral dicts from
