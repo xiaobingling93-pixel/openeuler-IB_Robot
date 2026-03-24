@@ -54,10 +54,7 @@ def _build_camera_bridge_entries(periph: dict, model_name: str, world_name: str)
     link_name = periph.get("transform", {}).get("parent_frame", "base")
     sensor_name = f"{name}_camera"
 
-    gz_base = (
-        f"/world/{world_name}/model/{model_name}"
-        f"/link/{link_name}/sensor/{sensor_name}/{sensor_name}"
-    )
+    gz_base = f"/{sensor_name}"
 
     return [
         {
