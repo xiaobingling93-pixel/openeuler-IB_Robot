@@ -49,6 +49,13 @@ IB_Robot 架构四大支柱：
    - 使用 ROS 2 原生的 topic/service/action 通信
    - 禁止使用 socket、subprocess、HTTP 等非 ROS 方式
    - 硬件访问通过 ros2_control
+
+5. **Package-Specific Architecture Compliance**
+   - **包职责隔离**: 每个 ROS 包必须遵循其在架构中定义的职责边界。
+   - **严禁职责越界**: 
+     - 例如 `robot_teleop` 应仅负责传感器数据映射，严禁引入 IK (Inverse Kinematics) 或运动规划逻辑。
+     - 如果驱动包开始持有 ROS Node 句柄并调用其他重型服务，必须提出警告。
+     - 检查改动是否使包演变成了“重型节点”，违背了关注点分离原则。
 """
 
     def __init__(
