@@ -160,16 +160,6 @@ def launch_setup(context, *args, **kwargs):
     print(f"[robot_config] auto_start_controllers: {auto_start_controllers}")
     print(f"[robot_config] control_mode: {control_mode_override if control_mode_override else '(from config)'}")
 
-    _ros_domain = os.environ.get("ROS_DOMAIN_ID", "")
-    if _ros_domain == "":
-        print(
-            "[robot_config] NOTE: ROS_DOMAIN_ID unset (DDS default domain 0). "
-            "In shells running ``ros2 topic/node/service``, use ``source install/setup.bash`` "
-            "and the same ROS_DOMAIN_ID as this launch."
-        )
-    else:
-        print(f"[robot_config] ROS_DOMAIN_ID={_ros_domain} (match this in other terminals for CLI tools)")
-
     # ========== 2. Load robot configuration ==========
     try:
         robot_config = load_robot_config(
