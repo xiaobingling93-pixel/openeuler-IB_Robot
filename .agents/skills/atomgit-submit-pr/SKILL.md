@@ -39,18 +39,30 @@ upstream  git@atomgit.com:openEuler/IB_Robot.git (push)
 
 ## 快速使用
 
-### 创建 PR
+### 创建 PR (推荐 Agent 方式)
+
+Agent 在创建 PR 时，**必须**先分析当前分支的变更，生成一份专业的 Markdown 描述文件，然后通过 `--description-file` 参数创建：
+
+```bash
+# 1. 获取变更信息
+git diff upstream/master..HEAD
+
+# 2. Agent 生成专业描述并存入 pr_description.md
+# 描述应包含：Summary (核心价值), Changes (技术细节), Testing (测试验证)
+
+# 3. 创建 PR
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: 专业标题" --description-file pr_description.md
+```
+
+### 基础用法
 
 ```bash
 # 步骤1: 获取 fork owner
 git remote -v
-# 从输出中提取个人 fork 的 owner，如 BreezeWu
+# 从输出中提取个人 fork 的 owner (即 origin 的用户名)，如 BreezeWu
 
-# 步骤2: 创建 PR
-python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu
-
-# 指定标题和描述
-python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: add new feature" --body "Description..."
+# 步骤2: 创建 PR (必须显式提供描述内容)
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: my change" --body "专业描述内容..."
 ```
 
 ### 生成/更新 PR 描述 (Agent 驱动)

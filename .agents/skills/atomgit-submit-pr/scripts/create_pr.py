@@ -132,51 +132,6 @@ def add_ai_signature(description: str, ai_model: str) -> str:
     return description
 
 
-def generate_pr_description(
-    branch: str,
-    commits: List[Dict],
-    files: List[str],
-    stats: Dict,
-    base_branch: str = "master",
-    ai_model: str = "ai",
-) -> str:
-    """生成 PR 描述"""
-    lines = []
-
-    lines.append("## Summary")
-    lines.append("")
-
-    if commits:
-        lines.append("### Commits")
-        for c in commits:
-            lines.append(f"- {c['subject']}")
-        lines.append("")
-
-    lines.append("### Changed Files")
-    lines.append(f"- Files changed: {stats['files_changed']}")
-    lines.append(f"- Insertions: +{stats['insertions']}")
-    lines.append(f"- Deletions: -{stats['deletions']}")
-    lines.append("")
-
-    if files:
-        lines.append("### File List")
-        for f in files[:20]:
-            lines.append(f"- `{f}`")
-        if len(files) > 20:
-            lines.append(f"- ... and {len(files) - 20} more files")
-        lines.append("")
-
-    lines.append("---")
-    lines.append("")
-    lines.append("## How to Test")
-    lines.append("- Verify code compiles/builds successfully")
-    lines.append("- Run relevant tests")
-    lines.append("")
-
-    # 添加 AI 签名
-    return add_ai_signature("\n".join(lines), ai_model)
-
-
 def load_config(config_path: str) -> dict:
     """加载配置文件"""
     with open(config_path, "r", encoding="utf-8") as f:
@@ -193,7 +148,8 @@ def main():
     parser.add_argument("--branch", type=str, help="源分支名")
     parser.add_argument("--base", type=str, default="master", help="目标分支名")
     parser.add_argument("--title", type=str, help="PR 标题")
-    parser.add_argument("--body", type=str, help="PR 描述")
+    parser.add_argument("--body", type=str, help="PR 描述文本")
+    parser.add_argument("--description-file", type=str, help="从文件读取 PR 描述 (Markdown 格式)")
     parser.add_argument(
         "--config", type=str, default="config.json", help="配置文件路径"
     )
@@ -259,9 +215,26 @@ def main():
     )
 
     print(">>> 生成 PR 描述...")
-    description = args.body or generate_pr_description(
-        branch, commits, files, stats, args.base, args.ai_model
-    )
+    
+    # 描述优先级: --description-file > --body
+    if args.description_file:
+        try:
+            with open(args.description_file, "r", encoding="utf-8") as f:
+                description = f.read()
+            print(f"✓ 从文件读取描述: {args.description_file}")
+        except Exception as e:
+            print(f"❌ 读取描述文件失败: {e}")
+            sys.exit(1)
+    elif args.body:
+        description = args.body
+    else:
+        print("❌ 错误: 必须提供 PR 描述。")
+        print("   建议先让 AI 分析变更并生成专业描述文件，然后使用 --description-file 参数。")
+        print("   或者使用 --body 参数直接传入描述内容。")
+        sys.exit(1)
+
+    # 添加 AI 签名
+    description = add_ai_signature(description, args.ai_model)
 
     title = args.title or commits[0]["subject"]
     print(f"✓ 标题: {title}")
