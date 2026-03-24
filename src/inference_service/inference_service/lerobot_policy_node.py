@@ -418,6 +418,32 @@ class LeRobotPolicyNode(Node):
             obs_frame[key] = v if v is not None else self._obs_zero.get(key, np.zeros(1))
         
         return obs_frame
+
+    # -- Unit conversion: ros2_control radians <-> LeRobot percentage --------
+    # LeRobot datasets store joint positions as percentage-of-range values:
+    #   arm joints  -> RANGE_M100_100: linearly mapped to [-100, +100]
+    #   gripper     -> RANGE_0_100:    linearly mapped to [0, 100]
+    # ros2_control publishes /joint_states in radians.
+    # The mapping is:  pct = (rad - rad_min) / (rad_max - rad_min) * span + offset
+    #   RANGE_M100_100:  span=200, offset=-100
+    #   RANGE_0_100:     span=100, offset=0
+    _JOINT_RAD_LIMITS = [
+        # (rad_min,  rad_max,  pct_span, pct_offset)
+        (-2.0693,   2.0709,   200.0,    -100.0),   # joint 1
+        (-1.92,     1.92,     200.0,    -100.0),   # joint 2
+        (-1.6813,   1.6828,   200.0,    -100.0),   # joint 3
+        (-1.65806,  1.65806,  200.0,    -100.0),   # joint 4
+        (-2.9115,   2.9115,   200.0,    -100.0),   # joint 5
+        ( 0.0,      1.0,      100.0,      0.0),    # joint 6 (gripper)
+    ]
+
+    def _rad_to_lerobot(self, state: np.ndarray) -> np.ndarray:
+        """Convert radians to LeRobot percentage units."""
+        out = np.empty_like(state, dtype=np.float64)
+        for i, (rmin, rmax, span, offset) in enumerate(self._JOINT_RAD_LIMITS):
+            if i < len(state):
+                out[i] = (state[i] - rmin) / (rmax - rmin) * span + offset
+        return out
     
     def _dispatch_infer_callback(self, goal_handle):
         """Execute inference requested by dispatcher."""
@@ -427,11 +453,12 @@ class LeRobotPolicyNode(Node):
         try:
             obs_frame = self._sample_obs_frame(obs_timestamp_ns)
 
-            # Convert observation.state from radians (ros2_control) to degrees
-            # (model training convention) to match the dataset statistics used
-            # for normalization.  Action-side deg→rad is in action_dispatcher.
+            # Convert observation.state from radians (ros2_control) to LeRobot
+            # percentage units to match the dataset statistics used for normalization.
+            # LeRobot uses RANGE_M100_100 for arm joints and RANGE_0_100 for gripper.
+            # Action-side reverse mapping is in action_dispatcher.
             if "observation.state" in obs_frame:
-                obs_frame["observation.state"] = np.degrees(obs_frame["observation.state"])
+                obs_frame["observation.state"] = self._rad_to_lerobot(obs_frame["observation.state"])
 
             if self._config.execution_mode == "distributed":
                 result = self._execute_distributed(obs_frame, goal.inference_id)

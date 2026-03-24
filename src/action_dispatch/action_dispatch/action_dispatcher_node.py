@@ -121,6 +121,19 @@ class ActionDispatcherNode(Node):
         if not self._executor.initialize():
             raise RuntimeError("Failed to initialize TopicExecutor")
 
+        # -- Unit conversion table: LeRobot percentage <-> ros2_control radians
+        # LeRobot stores arm joints as RANGE_M100_100 [-100,+100] and gripper
+        # as RANGE_0_100 [0,100].  ros2_control expects radians.
+        self._joint_rad_limits = [
+            # (rad_min,  rad_max,  pct_span, pct_offset)
+            (-2.0693,   2.0709,   200.0,    -100.0),   # joint 1
+            (-1.92,     1.92,     200.0,    -100.0),   # joint 2
+            (-1.6813,   1.6828,   200.0,    -100.0),   # joint 3
+            (-1.65806,  1.65806,  200.0,    -100.0),   # joint 4
+            (-2.9115,   2.9115,   200.0,    -100.0),   # joint 5
+            ( 0.0,      1.0,      100.0,      0.0),    # joint 6 (gripper)
+        ]
+
         # 6. Communication
         self._infer_client = rclpy.action.ActionClient(self, DispatchInfer, self._server_name)
         
@@ -161,6 +174,14 @@ class ActionDispatcherNode(Node):
     def _joint_cb(self, msg):
         """Optional: could use current state for safety or initialization."""
         pass
+
+    def _lerobot_to_rad(self, action: np.ndarray) -> np.ndarray:
+        """Convert LeRobot percentage units to radians for ros2_control."""
+        out = np.empty_like(action, dtype=np.float64)
+        for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
+            if i < len(action):
+                out[i] = (action[i] - offset) / span * (rmax - rmin) + rmin
+        return out
     
     def _get_plan_length(self) -> int:
         """Get current plan length (works for both modes)."""
@@ -198,13 +219,14 @@ class ActionDispatcherNode(Node):
         
         # C. Execute
         if action is not None:
-            # self._executor.execute(action)
             if isinstance(action, torch.Tensor):
                 action_np = action.detach().cpu().numpy()
             else:
                 action_np = np.array(action)
-        
-            radian_action = np.radians(action_np)
+            # Convert from LeRobot percentage units to radians (ros2_control).
+            # Arm joints: [-100, +100] → [joint_min, joint_max] rad
+            # Gripper:    [0, 100]     → [0, 1.0] rad
+            radian_action = self._lerobot_to_rad(action_np)
             self._executor.execute(radian_action)
 
     def _request_inference(self):
