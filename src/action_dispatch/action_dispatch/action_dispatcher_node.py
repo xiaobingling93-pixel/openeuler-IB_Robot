@@ -198,7 +198,14 @@ class ActionDispatcherNode(Node):
         
         # C. Execute
         if action is not None:
-            self._executor.execute(action)
+            # self._executor.execute(action)
+            if isinstance(action, torch.Tensor):
+                action_np = action.detach().cpu().numpy()
+            else:
+                action_np = np.array(action)
+        
+            radian_action = np.radians(action_np)
+            self._executor.execute(radian_action)
 
     def _request_inference(self):
         """Send async goal to inference service."""
