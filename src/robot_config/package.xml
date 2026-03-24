@@ -17,6 +17,7 @@
   <exec_depend>usb_cam</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>voice_asr_service</exec_depend>
 
   <!-- ros2_control -->
   <exec_depend>ros2_control</exec_depend>

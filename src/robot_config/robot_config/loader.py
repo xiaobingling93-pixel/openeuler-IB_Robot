@@ -15,6 +15,7 @@ from robot_config.config import (
     ContractExtensionConfig,
     ContractObservation,
     ContractAction,
+    VoiceASRConfig,
 )
 
 from .utils import resolve_ros_path
@@ -145,6 +146,30 @@ def load_contract_config(data: Dict[str, Any]) -> ContractExtensionConfig:
     )
 
 
+def load_voice_asr_config(data: Dict[str, Any]) -> VoiceASRConfig:
+    """Load voice ASR configuration from dict."""
+    model_path = data.get("model_path", "")
+    tokens_path = data.get("tokens_path", "")
+
+    return VoiceASRConfig(
+        enabled=data.get("enabled", False),
+        active_mode=data.get("active_mode", "manual"),
+        language=data.get("language", "zh"),
+        model_path=resolve_ros_path(model_path) if model_path else "",
+        tokens_path=resolve_ros_path(tokens_path) if tokens_path else "",
+        provider=data.get("provider", "cpu"),
+        model_type=data.get("model_type", "auto"),
+        max_recording_duration=data.get("max_recording_duration", 10.0),
+        vad_sensitivity=data.get("vad_sensitivity", 0.5),
+        publish_partial=data.get("publish_partial", True),
+        output_topic=data.get("output_topic", "/voice_command"),
+        sample_rate=data.get("sample_rate", 16000),
+        chunk_size=data.get("chunk_size", 512),
+        buffer_seconds=data.get("buffer_seconds", 5.0),
+        device_index=data.get("device_index", -1),
+    )
+
+
 def load_robot_config(config_path: Union[str, Path]) -> RobotConfig:
     """Load robot configuration from YAML file.
 
@@ -205,6 +230,8 @@ def load_robot_config(config_path: Union[str, Path]) -> RobotConfig:
     contract_data = robot_data.get("contract", {})
     contract = load_contract_config(contract_data)
 
+    voice_asr = load_voice_asr_config(robot_data.get("voice_asr", {}))
+
     return RobotConfig(
         name=name,
         type=type_,
@@ -212,6 +239,7 @@ def load_robot_config(config_path: Union[str, Path]) -> RobotConfig:
         ros2_control=ros2_control,
         peripherals=peripherals,
         contract=contract,
+        voice_asr=voice_asr,
     )
 
 
@@ -259,6 +287,9 @@ def validate_config(config: RobotConfig) -> List[str]:
                 errors.append(
                     f"Observation '{obs.key}' references undefined peripheral: {obs.peripheral}"
                 )
+
+    if config.voice_asr.enabled and not config.voice_asr.model_path:
+        errors.append("voice_asr.model_path is required when voice_asr.enabled is true")
 
     return errors
 

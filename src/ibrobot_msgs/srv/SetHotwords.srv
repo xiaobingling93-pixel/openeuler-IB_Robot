@@ -1,0 +1,7 @@
+# Request
+string[] hotwords         # 热词列表
+float32[] boost_scores    # 增强分数 (可选, 默认 1.5)
+---
+# Response
+bool success              # 是否成功
+string error_message      # 错误信息

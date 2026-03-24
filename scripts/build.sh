@@ -142,7 +142,7 @@ setup_venv() {
 ensure_python_deps() {
     [[ -z "${VIRTUAL_ENV:-}" ]] && return 0
     
-    local deps=("serial:pyserial" "feetech_servo_sdk:feetech-servo-sdk")
+    local deps=("serial:pyserial" "feetech_servo_sdk:feetech-servo-sdk" "sherpa_onnx:sherpa-onnx" "soundfile:soundfile" "sounddevice:sounddevice")
     for dep in "${deps[@]}"; do
         local module="${dep%%:*}"
         local package="${dep##*:}"

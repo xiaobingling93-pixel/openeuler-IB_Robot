@@ -5,6 +5,7 @@ This launch file loads robot configuration from YAML and dynamically generates:
 - Robot state publisher
 - Camera drivers (usb_cam, realsense2_camera)
 - Static TF publishers for camera frames
+- Voice ASR node (optional, configured from robot.voice_asr)
 - Inference service and action dispatcher (optional, auto-detected)
 - MoveIt motion planning (optional, auto-detected)
 
@@ -82,6 +83,7 @@ from robot_config.launch_builders.simulation import generate_gazebo_nodes
 from robot_config.launch_builders.execution import generate_execution_nodes
 from robot_config.launch_builders.teleop import generate_teleop_nodes
 from robot_config.launch_builders.recording import generate_recording_nodes
+from robot_config.launch_builders.voice_asr import generate_voice_asr_nodes
 
 
 def load_robot_config(robot_config_name, config_path_override=None):
@@ -261,7 +263,18 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR checking teleop mode: {e}")
         raise
 
-    # ========== 8. Generate Execution Nodes ==========
+    # ========== 8. Generate Voice ASR Nodes ==========
+    print(f"[robot_config] ========== Checking Voice ASR ==========")
+    try:
+        voice_asr_nodes = generate_voice_asr_nodes(robot_config)
+        actions.extend(voice_asr_nodes)
+        if voice_asr_nodes:
+            print(f"[robot_config] Added {len(voice_asr_nodes)} voice ASR node(s)")
+    except Exception as e:
+        print(f"[robot_config] ERROR generating voice ASR nodes: {e}")
+        raise
+
+    # ========== 9. Generate Execution Nodes ==========
     print(f"[robot_config] ========== Generating Execution Nodes ==========")
     try:
         if with_inference:
@@ -274,7 +287,7 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR generating execution nodes: {e}")
         raise
 
-    # ========== 9. Generate MoveIt Nodes ==========
+    # ========== 10. Generate MoveIt Nodes ==========
     try:
         # Determine with_moveit flag
         with_moveit_str = context.launch_configurations.get('with_moveit', '')
@@ -312,7 +325,7 @@ def launch_setup(context, *args, **kwargs):
         print(f"[robot_config] ERROR generating MoveIt nodes: {e}")
         print(f"[robot_config] Continuing without MoveIt...")
 
-    # ========== 9. Automatic Recording (if record:=true) ==========
+    # ========== 11. Automatic Recording (if record:=true) ==========
     try:
         record_str = context.launch_configurations.get('record', 'false')
         record_enabled = parse_bool(record_str, default=False)
