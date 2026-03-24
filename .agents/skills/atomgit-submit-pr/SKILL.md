@@ -41,17 +41,31 @@ upstream  git@atomgit.com:openEuler/IB_Robot.git (push)
 
 ### 创建 PR (推荐 Agent 方式)
 
-Agent 在创建 PR 时，**必须**先分析当前分支的变更，生成一份专业的 Markdown 描述文件，然后通过 `--description-file` 参数创建：
+Agent 在创建 PR 时，**必须**遵循 [PR #32](https://atomgit.com/openeuler/IB_Robot/pull/32) 的极高专业水准。描述文件应采用以下深度结构，并优先使用 **Mermaid 图表** 来解释复杂的逻辑或架构。
+
+**PR 描述强制要求：**
+
+1.  **Markdown 渲染质量**: **必须**确保所有的 Markdown 语法（包括标题、加粗、列表、代码块、Mermaid 图表）都能被正确渲染。避免直接在 shell 命令中使用未处理的换行符。
+2.  **超链接使用**: 对相关的 Issue、PR、技术规范或设计文档，**必须**使用 Markdown 超链接进行关联（如 `[PR #32](https://atomgit.com/openeuler/IB_Robot/pull/32)`），以方便审阅者查阅背景。
+3.  **深度结构化内容**:
+    *   **Background & Motivation (背景与动机)**: 详细说明问题的根源、业务痛点或功能需求。
+    *   **Proposed Solution (方案概述)**: 描述解决思路、架构设计决策。如果涉及流程，**必须使用 Mermaid 流程图或时序图**。
+    *   **Technical Changes (技术细节)**: 按模块拆解代码级变更，解释关键类、函数或配置的逻辑。
+    *   **Impact Assessment (影响范围)**: 评估变更对系统其他部分、现有 API 或性能的潜在影响。
+    *   **Verification (验证结果)**: 
+        *   **Environment**: 测试环境配置。
+        *   **Command**: 具体的运行命令（如 `ros2 launch ...`）。
+        *   **Results**: 截图描述或输出日志片段，证明功能符合预期且无回归风险。
 
 ```bash
 # 1. 获取变更信息
 git diff upstream/master..HEAD
 
-# 2. Agent 生成专业描述并存入 pr_description.md
-# 描述应包含：Summary (核心价值), Changes (技术细节), Testing (测试验证)
+# 2. Agent 深度分析并生成专业描述文件 pr_description.md
+# 必须包含上述 5 个部分，并包含 Mermaid 图。
 
 # 3. 创建 PR
-python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: 专业标题" --description-file pr_description.md
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat(scope): technical summary" --description-file pr_description.md
 ```
 
 ### 基础用法
@@ -59,10 +73,9 @@ python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "fea
 ```bash
 # 步骤1: 获取 fork owner
 git remote -v
-# 从输出中提取个人 fork 的 owner (即 origin 的用户名)，如 BreezeWu
 
-# 步骤2: 创建 PR (必须显式提供描述内容)
-python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "feat: my change" --body "专业描述内容..."
+# 步骤2: 创建 PR (必须包含 Summary/Changes/Verification 三大核心板块)
+python3 create_pr.py --branch feat/my-feature --fork-owner BreezeWu --title "fix: specific issue" --body "## Background\n...\n## Changes\n...\n## Verification\n..."
 ```
 
 ### 生成/更新 PR 描述 (Agent 驱动)
