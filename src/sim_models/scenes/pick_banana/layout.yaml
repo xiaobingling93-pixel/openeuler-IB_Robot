@@ -1,0 +1,57 @@
+# Scene: pick_banana
+# Task: Pick the banana from the table and place it on the plate.
+#
+# All positions/rotations match the MuJoCo MJCF (so101_full_scene.xml) so both
+# Gazebo and MuJoCo simulations start from an identical world state.
+# T7 reads this file to define task success criteria and object references.
+
+scene_name: pick_banana
+description: "Table-top scene with banana and plate for pick-and-place task"
+
+# Robot spawn position for this scene.
+# The table surface is at z=0; the so101 URDF base_link origin sits ~3cm above the
+# physical table contact point, so we lower the spawn by 0.03m to align visually.
+# gazebo_adapter reads this and overrides initial_pose_z when the scene is loaded.
+robot_spawn:
+  x: 0.0
+  y: 0.0
+  z: -0.03
+
+objects:
+  - name: bluetable
+    type: static_mesh
+    gazebo_mesh: bluetable.obj
+    mujoco_mesh: bluetable.obj
+    mesh_scale: 0.1
+    position: [0.0, 0.0, -0.206]
+    rotation_euler_rad: [1.5708, 0.0, 0.0]
+    description: "Blue table providing the work surface (visual only)"
+
+  - name: green_curten
+    type: static_mesh
+    gazebo_mesh: greencurten.obj
+    mujoco_mesh: greencurten_mj.obj
+    mesh_scale: 0.15
+    position: [0.0, -0.4, 0.0]
+    rotation_euler_rad: [1.5708, 0.0, 0.0]
+    description: "Green curtain background (visual only)"
+
+  - name: plate
+    type: dynamic
+    gazebo_mesh: plate.obj
+    mujoco_mesh: plate.obj
+    mesh_scale: 0.08
+    position: [0.22, 0.02, 0.02]
+    rotation_euler_rad: [1.5708, 0.0, 0.0]
+    mass_kg: 0.2
+    description: "White plate — target for banana placement"
+
+  - name: banana
+    type: dynamic
+    gazebo_mesh: banana.obj
+    mujoco_mesh: banana_mj.obj
+    mesh_scale: 0.012
+    position: [0.22, 0.02, 0.075]
+    rotation_euler_rad: [1.5708, 0.0, 0.0]
+    mass_kg: 0.1
+    description: "Yellow banana — object to be grasped"

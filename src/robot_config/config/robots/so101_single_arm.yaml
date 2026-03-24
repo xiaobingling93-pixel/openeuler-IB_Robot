@@ -213,7 +213,7 @@ robot:
   # ============================================
   simulation:
     platform: gazebo        # "gazebo" | "mujoco"
-    scene: null             # null = 不加载场景；或填场景名如 "table_top"
+    scene: pick_banana      # null = 不加载场景；pick_banana = 香蕉抓取场景
     sim_models_pkg: sim_models
 
   # IB-Robot contract integration

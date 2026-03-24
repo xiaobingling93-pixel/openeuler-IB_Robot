@@ -103,6 +103,35 @@ class GazeboAdapter(SimBackendAdapter):
             world_file = f"$(find robot_config)/config/worlds/{world_file}"
 
         world_path = resolve_ros_path(world_file)
+
+        # Scene override: if simulation.scene is set, replace the default world
+        # with the sim_models template (resolves mesh paths to absolute URIs).
+        # Also reads robot_spawn from layout.yaml to override initial_pose_z,
+        # so the scene (not the robot YAML) owns the table-relative spawn position.
+        _scene_name = robot_config.get("simulation", {}).get("scene")
+        if _scene_name:
+            try:
+                from sim_models.scene_compiler import get_gazebo_world_path, get_scene_layout
+                world_path = str(get_gazebo_world_path(_scene_name))
+                print(f"[robot_config] sim_models scene '{_scene_name}' → {world_path}")
+                layout = get_scene_layout(_scene_name)
+                spawn = layout.get("robot_spawn", {})
+                for axis in ("x", "y", "z"):
+                    key = f"initial_pose_{axis}"
+                    if axis in spawn:
+                        robot_config[key] = spawn[axis]
+                        print(f"[robot_config] scene robot_spawn.{axis} = {spawn[axis]}")
+            except ImportError:
+                print(
+                    "[robot_config] WARNING: sim_models not installed; "
+                    "ignoring simulation.scene"
+                )
+            except Exception as e:
+                print(
+                    f"[robot_config] WARNING: scene '{_scene_name}' load failed: {e}; "
+                    "falling back to default world"
+                )
+
         if not Path(world_path).exists():
             print(f"[robot_config] WARNING: World file not found at {world_path}")
 
