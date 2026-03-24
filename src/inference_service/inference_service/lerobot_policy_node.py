@@ -427,6 +427,12 @@ class LeRobotPolicyNode(Node):
         try:
             obs_frame = self._sample_obs_frame(obs_timestamp_ns)
 
+            # Convert observation.state from radians (ros2_control) to degrees
+            # (model training convention) to match the dataset statistics used
+            # for normalization.  Action-side deg→rad is in action_dispatcher.
+            if "observation.state" in obs_frame:
+                obs_frame["observation.state"] = np.degrees(obs_frame["observation.state"])
+
             if self._config.execution_mode == "distributed":
                 result = self._execute_distributed(obs_frame, goal.inference_id)
             else:
