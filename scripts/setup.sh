@@ -396,13 +396,6 @@ install_system_deps() {
             --skip-keys "catkin roscpp lerobot trimesh[easy] simple-parsing cupy-cuda12x ctl_system_interface numpy_lessthan_2 ament_python feetech-servo-sdk pyserial"
     elif command -v dnf &> /dev/null; then
         log_info "Updating dnf package repositories..."
-        # openEuler Embedded might not need full dnf update every time
-
-        # Disable GPG check in dnf.conf to avoid missing key errors on openEuler
-        if grep -q "^gpgcheck=1" /etc/dnf/dnf.conf 2>/dev/null; then
-            sudo sed -i 's/^gpgcheck=1/gpgcheck=0/' /etc/dnf/dnf.conf
-            log_warn "Set gpgcheck=0 in /etc/dnf/dnf.conf to avoid GPG errors."
-        fi
 
         log_info "Updating rosdepc database..."
         rosdepc update --rosdistro=humble
