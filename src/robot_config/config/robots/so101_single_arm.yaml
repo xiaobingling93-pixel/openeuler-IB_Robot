@@ -6,6 +6,17 @@ robot:
   name: so101_single_arm
   type: so101
   robot_type: so_101  # For LeRobot dataset metadata
+  # Gazebo：须与 config/worlds 里 <world name="..."> 一致；create 不传 -world 时会随机取 worlds 列表第一个
+  gazebo_world_name: demo
+  # 在 gz 加载世界后再 spawn URDF，避免竞态（可按机器调大，如 6.0）
+  gazebo_spawn_delay_sec: 5.0
+
+  # Gazebo 窗口灰屏、实体树空但 /joint_states 正常时，日志常见：
+  #   libEGL warning: egl: failed to create dri2 screen
+  # 可保持下方为 true；若显卡正常、仅想开 GPU 加速，把 libgl_always_software 改为 false
+  gazebo_gui:
+    qt_platform: xcb
+    libgl_always_software: true
 
   # ============================================
   # Model Library (新增)
@@ -155,6 +166,7 @@ robot:
       width: 640
       height: 480
       fps: 30
+      fovy: 70          # vertical field of view (degrees), used by MuJoCo
       pixel_format: mjpeg2rgb
       frame_id: camera_top_frame
       optical_frame_id: camera_top_optical_frame
@@ -177,6 +189,7 @@ robot:
       width: 640
       height: 480
       fps: 60
+      fovy: 60          # vertical field of view (degrees), used by MuJoCo
       pixel_format: mjpeg2rgb
       frame_id: camera_wrist_frame
       optical_frame_id: camera_wrist_optical_frame
@@ -198,6 +211,7 @@ robot:
       width: 640
       height: 480
       fps: 30
+      fovy: 60          # vertical field of view (degrees), used by MuJoCo
       pixel_format: bgr8
       enable_pointcloud: false
       align_depth: true
@@ -212,6 +226,14 @@ robot:
         roll: 0.0
         pitch: 0.0
         yaw: 0.0
+
+  # ============================================
+  # Simulation Configuration
+  # ============================================
+  simulation:
+    platform: gazebo        # "gazebo" | "mujoco"
+    scene: pick_banana      # null = 不加载场景；pick_banana = 香蕉抓取场景
+    sim_models_pkg: sim_models
 
   # IB-Robot contract integration
   contract:

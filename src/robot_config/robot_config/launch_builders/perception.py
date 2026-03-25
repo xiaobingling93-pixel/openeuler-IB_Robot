@@ -22,6 +22,10 @@ def generate_camera_nodes(robot_config, use_sim=False):
         List of Node actions for cameras
     """
     is_sim = parse_bool(use_sim, default=False)
+    if is_sim:
+        print("[robot_config] Skipping physical camera drivers in sim mode")
+        return []
+
     nodes = []
 
     peripherals = robot_config.get("peripherals", [])
@@ -176,15 +180,21 @@ def generate_virtual_camera_relays(robot_config):
     return nodes
 
 
-def generate_tf_nodes(robot_config):
+def generate_tf_nodes(robot_config, use_sim=False):
     """Generate static TF publisher nodes for camera frames.
 
     Args:
         robot_config: Robot configuration dict
+        use_sim: Simulation mode (if True, TF is published by robot_state_publisher from URDF)
 
     Returns:
         List of Node actions for TF publishers
     """
+    is_sim = parse_bool(use_sim, default=False)
+    if is_sim:
+        # sim 模式下相机 TF 由 robot_state_publisher 从 URDF 发布，无需静态发布节点
+        return []
+
     nodes = []
 
     peripherals = robot_config.get("peripherals", [])

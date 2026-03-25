@@ -4,14 +4,15 @@ This module handles:
 - ros2_control node generation
 - Controller spawner creation
 - Joint configuration validation (delegates to utils.py)
+
+URDF building (xacro processing + camera injection) is in description.py.
 """
 
 from pathlib import Path
 from launch_ros.actions import Node
-from launch.substitutions import Command, PathJoinSubstitution, FindExecutable
-from launch_ros.parameter_descriptions import ParameterValue
 
 from robot_config.utils import resolve_ros_path, parse_bool, validate_joint_config
+from robot_config.launch_builders.description import generate_robot_description
 
 
 def generate_controller_spawners(controller_names, use_sim=True, controller_manager_name="controller_manager"):
@@ -60,73 +61,33 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         auto_start_controllers: Whether to automatically start controllers (string or bool)
 
     Returns:
-        Tuple: (List of Node actions, Dictionary of spawner nodes)
+        Tuple: (nodes, spawners_dict, deferred_sim_spawners)
+        In Gazebo simulation, controller spawners are returned in
+        ``deferred_sim_spawners`` (not included in ``nodes``) so launch can
+        start them after ``ros_gz_sim create`` exits.
     """
     is_sim = parse_bool(use_sim, default=False)
     is_auto_start = parse_bool(auto_start_controllers, default=True)
 
     nodes = []
     spawners_dict = {}
+    deferred_sim_spawners = []
     ros2_control_config = robot_config.get("ros2_control")
 
     if not ros2_control_config:
         print("[robot_config] No ros2_control configuration found")
-        return nodes, spawners_dict
+        return nodes, spawners_dict, deferred_sim_spawners
 
     print("[robot_config] Creating ros2_control nodes")
 
     # Validate joint configuration
     validate_joint_config(robot_config)
 
-    # Get URDF path
-    urdf_path = ros2_control_config.get("urdf_path")
-    if not urdf_path:
-        print("[robot_config] WARNING: No urdf_path specified")
-        return nodes, spawners_dict
-
-    urdf_path = resolve_ros_path(urdf_path)
-    print(f"[robot_config] URDF path: {urdf_path}")
-
-    if not Path(urdf_path).exists():
-        print(f"[robot_config] WARNING: URDF file not found at {urdf_path}")
-        return nodes, spawners_dict
-
-    # Get hardware parameters
-    port = ros2_control_config.get("port", "/dev/ttyACM0")
-    calib_file = resolve_ros_path(ros2_control_config.get("calib_file", ""))
-    
-    # Handle reset_positions
-    import json
-    reset_positions_dict = ros2_control_config.get("reset_positions", {})
-    reset_positions_json = json.dumps(reset_positions_dict)
-
-    # Generate robot_description using xacro
-    xacro_args = [
-        PathJoinSubstitution([FindExecutable(name="xacro")]),
-        " ",
-        urdf_path,
-        " ",
-        "use_sim:=",
-        "true" if is_sim else "false",
-        " ",
-        "port:=",
-        port,
-        " ",
-        "calib_file:=",
-        calib_file,
-        " ",
-        "reset_positions:=",
-        f"'{reset_positions_json}'",
-    ]
-
-    robot_description_content = ParameterValue(
-        Command(xacro_args),
-        value_type=str
-    )
-    robot_description = {"robot_description": robot_description_content}
-
-    if is_sim:
-        robot_description["use_sim_time"] = True
+    # Build URDF (xacro processing + camera injection) via description layer
+    _desc_result = generate_robot_description(robot_config, use_sim)
+    if _desc_result is None:
+        return nodes, spawners_dict, deferred_sim_spawners
+    _, robot_description = _desc_result
 
     # Robot State Publisher
     nodes.append(Node(
@@ -187,17 +148,15 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
                     if i < len(spawners):
                         spawners_dict[name] = spawners[i]
     else:
-        # Simulation mode
+        # Simulation mode — spawners run after Gazebo model insert (robot.launch.py)
         print("[robot_config] Simulation mode: Gazebo provides controller_manager")
-        print(f"[robot_config] Controllers to spawn: {controller_names}")
+        print(f"[robot_config] Controllers to spawn (deferred until after gz spawn): {controller_names}")
 
         if is_auto_start and controller_names:
-            spawners = generate_controller_spawners(controller_names, use_sim=True)
-            nodes.extend(spawners)
-            print(f"[robot_config] Added {len(spawners)} controller spawners")
-            # Store spawners in dict
+            deferred_sim_spawners = generate_controller_spawners(controller_names, use_sim=True)
+            print(f"[robot_config] Deferred {len(deferred_sim_spawners)} controller spawners")
             for i, name in enumerate(controller_names):
-                if i < len(spawners):
-                    spawners_dict[name] = spawners[i]
+                if i < len(deferred_sim_spawners):
+                    spawners_dict[name] = deferred_sim_spawners[i]
 
-    return nodes, spawners_dict
+    return nodes, spawners_dict, deferred_sim_spawners

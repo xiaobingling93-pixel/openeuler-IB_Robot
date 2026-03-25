@@ -1,0 +1,73 @@
+<mujoco model="pick_banana">
+  <!--
+    pick_banana MuJoCo scene template.
+    Placeholders substituted at launch time by scene_compiler.get_mujoco_scene_path():
+      {{ROBOT_XML_PATH}}  — absolute path to robot MJCF (e.g. so101.xml); T6 fills this.
+                            When omitted from get_mujoco_scene_path(), this include line
+                            is stripped so the file works standalone in MuJoCo Viewer.
+      {{MESHES_DIR}}      — absolute path to this scene's meshes/ directory.
+
+    Object parameters (positions, scales, physics) match so101_full_scene.xml exactly.
+  -->
+  <include file="{{ROBOT_XML_PATH}}"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.4 0.4 0.4" specular="0.0 0.0 0.0"/>
+    <rgba haze="0.15 0.25 0.35 1.0"/>
+    <global azimuth="160" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0.0 0.0 0.0"
+             width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+              texrepeat="5 5" reflectance="0.2"/>
+    <mesh name="bluetable_mesh"    file="{{MESHES_DIR}}/bluetable.obj"      scale="0.1 0.1 0.1"/>
+    <mesh name="green_curten_mesh" file="{{MESHES_DIR}}/greencurten_mj.obj" scale="0.15 0.15 0.15"/>
+    <mesh name="plate_mesh"        file="{{MESHES_DIR}}/plate.obj"          scale="0.08 0.08 0.08"/>
+    <mesh name="banana_mesh"       file="{{MESHES_DIR}}/banana_mj.obj"      scale="0.012 0.012 0.012"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0.0 0.0 3.5" dir="0.0 0.0 -1.0" directional="true"/>
+    <geom name="floor" size="0 0 0.05" pos="0 0 -0.2740" type="plane" material="groundplane"/>
+    <geom name="table_surface" type="plane" pos="0 0 0.0" size="0 0 0.05"
+          rgba="0 0 0 0" contype="1" conaffinity="1"/>
+
+    <body name="bluetable" pos="0.000000 0.000000 -0.206000" euler="1.570796 0.000000 0.000000">
+      <geom type="mesh" mesh="bluetable_mesh" rgba="0.2000 0.3000 0.6500 1.0000"
+            contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="green_curten" pos="0.000000 -0.400000 0.000000" euler="1.570796 0.000000 0.000000">
+      <geom type="mesh" mesh="green_curten_mesh" rgba="0.1000 0.7000 0.1800 1.0000"
+            contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="plate" pos="0.220000 0.020000 0.020000" euler="1.570796 0.000000 0.000000"
+          gravcomp="0">
+      <joint type="free" damping="5.0"/>
+      <geom type="mesh" mesh="plate_mesh" rgba="0.9200 0.9000 0.8500 1.0000"
+            contype="0" conaffinity="0"
+            friction="1.0 0.01 0.001" condim="4" mass="0"
+            solimp="0.99 0.999 0.0005 0.5 2" solref="0.004 2"/>
+      <geom type="cylinder" size="0.1 0.006" pos="0.0 -0.009 0.0"
+            euler="-1.570796 0.000000 0.000000" rgba="0 0 0 0"
+            contype="1" conaffinity="1"
+            friction="1.0 0.01 0.001" condim="4" mass="0.2"
+            solimp="0.99 0.999 0.0005 0.5 2" solref="0.004 2"/>
+    </body>
+
+    <body name="banana" pos="0.220000 0.020000 0.075000" euler="1.570796 0.000000 0.000000"
+          gravcomp="0">
+      <freejoint/>
+      <geom type="mesh" mesh="banana_mesh" rgba="0.9600 0.8500 0.1000 1.0000"
+            contype="1" conaffinity="1"
+            friction="3.0 0.5 0.05" condim="4" mass="0.1"
+            solimp="0.95 0.99 0.001 0.5 2" solref="0.004 1"/>
+    </body>
+  </worldbody>
+</mujoco>

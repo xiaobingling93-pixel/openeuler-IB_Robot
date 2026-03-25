@@ -1,11 +1,16 @@
 """Launch builder modules for robot_config.
 
 This package contains modules for building ROS2 launch components:
+- description.py: URDF building (xacro processing + camera injection)
 - control.py: ros2_control nodes, controller spawners
 - perception.py: Camera drivers, TF publishers
 - simulation.py: Gazebo and simulation nodes
 - execution.py: Action dispatcher and inference nodes
 """
+
+from robot_config.launch_builders.description import (
+    generate_robot_description,
+)
 
 from robot_config.launch_builders.control import (
     generate_ros2_control_nodes,
@@ -32,6 +37,8 @@ from robot_config.launch_builders.voice_asr import (
 )
 
 __all__ = [
+    # Description
+    'generate_robot_description',
     # Control
     'generate_ros2_control_nodes',
     'generate_controller_spawners',

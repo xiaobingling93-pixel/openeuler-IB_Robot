@@ -1,0 +1,136 @@
+"""Peripheral bridge node generators for Gazebo simulation.
+
+Uses ros_gz_bridge bridge_node with a YAML config file to map Gazebo sensor
+topics directly to the ROS topic naming contract — no remappings= needed.
+
+Why bridge_node instead of parameter_bridge + remappings=:
+  parameter_bridge with Node(remappings=...) causes the process to start but
+  fail to register with the ROS 2 daemon (processes appear in ps aux but not
+  in ros2 node list), so no topics are published. bridge_node with a YAML
+  config avoids this by specifying the ROS topic name directly in the config.
+
+Topic naming contract (output ROS topics):
+  /camera/{name}/image_raw
+  /camera/{name}/camera_info
+where {name} is YAML peripherals[].name (e.g. "top", "wrist").
+
+This contract matches real hardware: perception.py remaps both
+usb_cam and realsense2_camera outputs to the same topic names.
+
+Gazebo sensor path construction (camera example):
+  /world/{world_name}/model/{model_name}/link/{parent_frame}
+    /sensor/{sensor_name}/{sensor_name}/image
+
+where:
+  world_name   = world file's <world name="..."> (fixed: "demo")
+  model_name   = robot_config["name"]                    (e.g. "so101_single_arm")
+  parent_frame = peripherals[].transform.parent_frame    (e.g. "base", "wrist")
+  sensor_name  = f"{name}_camera"                        (e.g. "top_camera")
+
+Why parent_frame, not frame_id:
+  Ignition Gazebo 6 (gz-sim 6.x) merges fixed-joint child links into their
+  parent link during URDF→SDF conversion. The camera link (frame_id, e.g.
+  "camera_top_frame") is a fixed-joint child of the parent link ("base").
+  After merging, the Gazebo entity path uses the parent link name:
+    so101_single_arm::base::top_camera   (not ::camera_top_frame::top_camera)
+  Using frame_id in the bridge path subscribes to a nonexistent Gz topic.
+"""
+
+import os
+import yaml
+
+from launch_ros.actions import Node
+
+
+def _build_camera_bridge_entries(periph: dict, model_name: str, world_name: str) -> list:
+    """Return 2 bridge config dicts for one camera peripheral (image + camera_info).
+
+    Uses parent_frame as the Gazebo link name because Ignition Gazebo 6 merges
+    fixed-joint child links (frame_id) into the parent link.
+    """
+    name = periph["name"]
+    # Ignition Gazebo 6 merges the camera link (frame_id) into its parent.
+    # The sensor entity path is under the parent link, not the camera frame.
+    link_name = periph.get("transform", {}).get("parent_frame", "base")
+    sensor_name = f"{name}_camera"
+
+    gz_base = f"/{sensor_name}"
+
+    return [
+        {
+            "ros_topic_name": f"/camera/{name}/image_raw",
+            "gz_topic_name": f"{gz_base}/image",
+            "ros_type_name": "sensor_msgs/msg/Image",
+            "gz_type_name": "gz.msgs.Image",
+            "direction": "GZ_TO_ROS",
+            "lazy": False,
+        },
+        {
+            "ros_topic_name": f"/camera/{name}/camera_info",
+            "gz_topic_name": f"{gz_base}/camera_info",
+            "ros_type_name": "sensor_msgs/msg/CameraInfo",
+            "gz_type_name": "gz.msgs.CameraInfo",
+            "direction": "GZ_TO_ROS",
+            "lazy": False,
+        },
+    ]
+
+
+# Registry: peripheral type → bridge entry builder function.
+_PERIPHERAL_BRIDGE_BUILDERS = {
+    "camera": _build_camera_bridge_entries,
+    # "lidar": _build_lidar_bridge_entries,  # reserved
+    # "imu":   _build_imu_bridge_entries,    # reserved
+    # "rgbd":  _build_rgbd_bridge_entries,   # reserved
+}
+
+# Fixed path for the generated bridge config (overwritten on each launch).
+_BRIDGE_CONFIG_PATH = "/tmp/ros_gz_camera_bridge.yaml"
+
+
+def generate_peripheral_sim_bridges(
+    peripherals: list,
+    model_name: str,
+    world_name: str = "demo",
+) -> list:
+    """Generate a single bridge_node covering all peripheral cameras.
+
+    Writes a YAML config to /tmp/ros_gz_camera_bridge.yaml and returns one
+    bridge_node Node that reads it. bridge_node maps each Gazebo sensor topic
+    directly to its ROS contract name — no remappings= required.
+
+    Topic naming contract (output ROS topics):
+      /camera/{name}/image_raw
+      /camera/{name}/camera_info
+    where {name} is YAML peripherals[].name.
+
+    Args:
+        peripherals: List of peripheral dicts from robot_config["peripherals"].
+        model_name:  Gazebo model name (robot_config["name"]).
+        world_name:  Gazebo world name, default "demo" (matches simulation.world).
+
+    Returns:
+        List with one bridge_node Node action, or [] if no known peripherals.
+    """
+    bridge_entries = []
+    for periph in peripherals:
+        ptype = periph.get("type")
+        builder = _PERIPHERAL_BRIDGE_BUILDERS.get(ptype)
+        if builder:
+            bridge_entries.extend(builder(periph, model_name, world_name))
+
+    if not bridge_entries:
+        return []
+
+    with open(_BRIDGE_CONFIG_PATH, "w") as f:
+        yaml.dump(bridge_entries, f, default_flow_style=False)
+
+    return [
+        Node(
+            package="ros_gz_bridge",
+            executable="bridge_node",
+            name="camera_peripheral_bridge",
+            parameters=[{"config_file": _BRIDGE_CONFIG_PATH}],
+            output="screen",
+        )
+    ]

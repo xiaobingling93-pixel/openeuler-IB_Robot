@@ -1,0 +1,239 @@
+<?xml version="1.0" ?>
+<!-- pick_banana Gazebo world — generated from pick_banana.world.template.
+     Mesh paths placeholder: {{MESHES_DIR}} is replaced at launch time by
+     sim_models.scene_compiler.get_gazebo_world_path("pick_banana").
+     Physics/plugins/ground-plane are identical to simulation.world (world name="demo").
+-->
+<sdf version="1.9">
+  <world name="demo">
+
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Visible floor at z=-0.274 (matches MuJoCo floor geom position).
+         The table mesh spans from here up to z=0 (the tabletop). -->
+    <model name="ground_plane">
+      <static>true</static>
+      <pose>0 0 -0.274 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Invisible collision plane at z=0 (the table work surface).
+         Stops plate and banana from falling through the table.
+         Matches MuJoCo table_surface geom (rgba="0 0 0 0", contype=1).
+         The robot arm spawns at z=0 — exactly on this surface. -->
+    <model name="table_surface_collision">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <!-- No visual — this plane is invisible -->
+      </link>
+    </model>
+
+    <!-- ================================================================
+         Scene objects (positions/rotations match MuJoCo so101_full_scene.xml)
+         ================================================================ -->
+
+    <!-- Blue table: static, visual only.
+         MuJoCo-designed position: body center z=-0.206, mesh top at z=0 (= table_surface_collision = robot spawn). -->
+    <model name="bluetable">
+      <static>true</static>
+      <pose>0 0 -0.206 1.5708 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>file://{{MESHES_DIR}}/bluetable.obj</uri>
+              <scale>0.1 0.1 0.1</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.2 0.3 0.65 1</ambient>
+            <diffuse>0.2 0.3 0.65 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Green curtain: static, visual only, double-sided to avoid invisible backface. -->
+    <model name="green_curten">
+      <static>true</static>
+      <pose>0 -0.4 0 1.5708 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>file://{{MESHES_DIR}}/greencurten.obj</uri>
+              <scale>0.15 0.15 0.15</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.1 0.7 0.18 1</ambient>
+            <diffuse>0.1 0.7 0.18 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+            <double_sided>true</double_sided>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Plate: dynamic (can be pushed by gripper).
+         Collision: thin cylinder matching MuJoCo geom (r=0.1, half-len=0.006)
+         at local offset (0,-0.009,0) with -90° X rotation — combined with
+         model's +90° X rotation gives a horizontal (world-Z-axis) cylinder.
+         Inertia: thin disc m=0.2 kg r=0.1 m. -->
+    <model name="plate">
+      <pose>0.22 0.02 0.02 1.5708 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.2</mass>
+          <inertia>
+            <ixx>5e-4</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>5e-4</iyy><iyz>0</iyz>
+            <izz>1e-3</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <pose>0 -0.009 0 -1.5708 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.1</radius>
+              <length>0.012</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>file://{{MESHES_DIR}}/plate.obj</uri>
+              <scale>0.08 0.08 0.08</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.92 0.90 0.85 1</ambient>
+            <diffuse>0.92 0.90 0.85 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Banana: dynamic (grasping target).
+         Collision: box approximating the banana shape at scale=0.012.
+         Inertia: uniform box m=0.1 kg, ~0.15×0.04×0.04 m (post-scale). -->
+    <model name="banana">
+      <pose>0.22 0.02 0.075 1.5708 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.1</mass>
+          <inertia>
+            <ixx>2.3e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>2.0e-4</iyy><iyz>0</iyz>
+            <izz>2.0e-4</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.15 0.04 0.04</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>3.0</mu>
+                <mu2>3.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>file://{{MESHES_DIR}}/banana.obj</uri>
+              <scale>0.012 0.012 0.012</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.96 0.85 0.10 1</ambient>
+            <diffuse>0.96 0.85 0.10 1</diffuse>
+            <specular>0.1 0.1 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
