@@ -198,7 +198,7 @@ class ActionDispatcherNode(Node):
         self._smoothing_enabled_pub.publish(Bool(data=self._smoothing_enabled))
 
         # A. Trigger Inference if queue is low
-        if q_size < self._watermark and not self._inference_in_progress:
+        if q_size <= self._watermark and not self._inference_in_progress:
             self._request_inference()
 
         # B. Get Action
