@@ -341,23 +341,32 @@ ensure_rosdepc() {
             log_info "Python SSL cert path: ${ssl_pem}"
             log_info "System CA bundle: ${ca_bundle}"
 
-            log_info "Creating directory: $(dirname "${ssl_pem}")"
-            sudo mkdir -p "$(dirname "${ssl_pem}")"
+            log_warn "This fix will copy the system CA bundle to Python's SSL cert path."
+            log_warn "This is a global change that may affect other Python applications."
+            if ask_yn "Apply SSL certificate fix (copy system CA bundle to Python SSL path)?" "n"; then
+                log_info "Creating directory: $(dirname "${ssl_pem}")"
+                sudo mkdir -p "$(dirname "${ssl_pem}")"
 
-            if [[ -f "${ssl_pem}" ]]; then
-                log_info "Backing up existing cert: ${ssl_pem} -> ${ssl_pem}.bak"
-                sudo cp "${ssl_pem}" "${ssl_pem}.bak"
-            fi
+                if [[ -f "${ssl_pem}" ]]; then
+                    log_info "Backing up existing cert: ${ssl_pem} -> ${ssl_pem}.bak"
+                    sudo cp "${ssl_pem}" "${ssl_pem}.bak"
+                fi
 
-            log_info "Copying ${ca_bundle} -> ${ssl_pem}"
-            sudo cp "${ca_bundle}" "${ssl_pem}"
+                log_info "Copying ${ca_bundle} -> ${ssl_pem}"
+                sudo cp "${ca_bundle}" "${ssl_pem}"
+                log_done "SSL certificate fix applied"
 
-            # Retry init, capture output again
-            local retry_output
-            if ! retry_output=$(sudo rosdepc init 2>&1) || echo "${retry_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
-                log_error "rosdepc init failed even after SSL fix."
-                echo "${retry_output}"
-                log_error "Try running manually: sudo rosdepc init"
+                # Retry init, capture output again
+                local retry_output
+                if ! retry_output=$(sudo rosdepc init 2>&1) || echo "${retry_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
+                    log_error "rosdepc init failed even after SSL fix."
+                    echo "${retry_output}"
+                    log_error "Try running manually: sudo rosdepc init"
+                    exit 1
+                fi
+            else
+                log_warn "Skipped SSL fix. Please manually check your network or certificate configuration."
+                log_warn "You can also try running: sudo rosdepc init"
                 exit 1
             fi
         fi
