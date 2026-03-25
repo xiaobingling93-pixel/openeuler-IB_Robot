@@ -266,9 +266,17 @@ check_openeuler() {
         log_warn "openEuler detected. Setting ROS_OS_OVERRIDE=rhel:8 for rosdep compatibility."
         export ROS_OS_OVERRIDE=rhel:8
 
-        log_info "Adding openEuler repo and installing gcc-c++..."
-        sudo dnf config-manager --add-repo https://repo.openeuler.org/openEuler-24.03-LTS/OS/aarch64
-        sudo dnf clean all && sudo dnf makecache
+        if ! dnf repolist | grep -qi "openEuler-24.03-LTS"; then
+            local arch
+            arch=$(uname -m)
+            log_info "Adding openEuler repo for ${arch}..."
+            sudo dnf config-manager --add-repo "https://repo.openeuler.org/openEuler-24.03-LTS/OS/${arch}"
+            sudo dnf clean all && sudo dnf makecache
+        else
+            log_info "openEuler repo already configured, skipping add-repo."
+        fi
+
+        log_info "Installing gcc-c++ and vim-enhanced..."
         sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced
     fi
 }
