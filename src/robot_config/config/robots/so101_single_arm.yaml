@@ -137,13 +137,13 @@ robot:
     port: /dev/ttyACM0
     calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
     joint_names: ["1", "2", "3", "4", "5", "6"]
-    # Reset positions (optional)
+    # Reset positions (optional) - uses 'rest' pose from SRDF
     reset_positions:
-      "1": 0.0
-      "2": 0.0
-      "3": 0.0
-      "4": 0.0
-      "5": 0.0
+      "1": 0.0       # shoulder_pan:  centered
+      "2": -1.5854   # shoulder_lift: ~-90° (down)
+      "3": 1.5708    # elbow_flex:    ~+90° (folded)
+      "4": 0.7854    # wrist_flex:    ~+45° (tilted)
+      "5": 0.0       # wrist_roll:    centered
     urdf_path: $(find robot_description)/urdf/lerobot/so101/so101.urdf.xacro
 
     # Controllers configuration
