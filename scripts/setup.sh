@@ -1,6 +1,18 @@
 #!/bin/bash
 # setup.sh - Workspace setup script for ROS 2 Humble
 # Handles repository import, dependency installation, and environment setup
+#
+# Usage:
+#   ./scripts/setup.sh               # Interactive mode (prompts for each step)
+#   ./scripts/setup.sh --yes         # Auto-yes mode (skips all prompts with defaults)
+#   ./scripts/setup.sh -y            # Same as --yes
+#   ./scripts/setup.sh --git-http    # Use HTTP instead of SSH for git remotes
+#   ./scripts/setup.sh -y --git-http # Combine options
+#
+# Auto-yes defaults:
+#   - Submodule init:  initialize all submodules (option 1)
+#   - Fork setup:      skipped
+#   - Other prompts:   confirmed automatically
 set -e
 
 # ============================================================================
@@ -8,6 +20,9 @@ set -e
 # ============================================================================
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 PARALLEL_WORKERS=$(($(nproc) / 2))
+AUTO_YES=false
+GIT_HTTP=false
+SUMMARY=()
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,9 +30,28 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
+log_done()    { SUMMARY+=("${GREEN}✓${NC} $*"); }
+log_skipped() { SUMMARY+=("${YELLOW}⊘${NC} $* (skipped by --yes)"); }
+
+# ask_yn <prompt> <default>
+# default: "y" = yes by default (Y/n), "n" = no by default (y/N)
+# Returns 0 if confirmed, 1 if declined.
+ask_yn() {
+    local prompt="$1"
+    local default="${2:-n}"
+    if [[ "${AUTO_YES}" == true ]]; then
+        echo -e "${prompt} [auto-yes]"
+        return 0
+    fi
+    local hint
+    if [[ "${default}" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
+    read -r -p "${prompt} [${hint}]: " REPLY
+    REPLY="${REPLY:-${default}}"
+    [[ "${REPLY}" == "y" || "${REPLY}" == "Y" ]]
+}
 
 # ============================================================================
 # Environment Checks
@@ -64,14 +98,15 @@ update_submodules() {
             echo "  ✓ ${name} (${path})"
         done
         echo ""
-        read -p "Do you want to sync/update all submodules? [y/N]: " CONFIRM
-        if [[ "${CONFIRM}" != "y" && "${CONFIRM}" != "Y" ]]; then
+        if ! ask_yn "Do you want to sync/update all submodules?" "n"; then
             log_info "Skipping submodule update."
+            log_skipped "Submodule sync/update"
             return 0
         fi
         log_info "Updating all submodules..."
         export GIT_LFS_SKIP_SMUDGE=1
         git submodule update --init --recursive
+        log_done "Submodules synced/updated"
         return 0
     fi
 
@@ -92,44 +127,55 @@ update_submodules() {
     echo "  4) Select individually"
     echo "  0) Skip"
     echo ""
-    read -p "Enter your choice [1-4, 0]: " CHOICE
+    if [[ "${AUTO_YES}" == true ]]; then
+        CHOICE="1"
+        log_info "Auto-yes: selecting option 1 (all submodules)"
+    else
+        read -r -p "Enter your choice [1-4, 0]: " CHOICE
+    fi
 
     case "${CHOICE}" in
         1)
             log_info "Initializing all submodules..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive
+            log_done "Submodules initialized: all"
             ;;
         2)
             log_info "Initializing LeRobot (libs/lerobot)..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive libs/lerobot
+            log_done "Submodules initialized: LeRobot"
             ;;
         3)
             log_info "Initializing PyMoveIt2 (src/pymoveit2)..."
             export GIT_LFS_SKIP_SMUDGE=1
             git submodule update --init --recursive src/pymoveit2
+            log_done "Submodules initialized: PyMoveIt2"
             ;;
         4)
             echo ""
             for entry in "${need_init[@]}"; do
                 local path="${entry%%:*}"
                 local name="${entry##*:}"
-                read -p "Initialize ${name} (${path})? [Y/n]: " CONFIRM
-                if [[ "${CONFIRM}" != "n" && "${CONFIRM}" != "N" ]]; then
+                if ask_yn "Initialize ${name} (${path})?" "y"; then
                     log_info "Initializing ${name}..."
                     export GIT_LFS_SKIP_SMUDGE=1
                     git submodule update --init --recursive "${path}"
+                    log_done "Submodule initialized: ${name}"
                 else
                     log_warn "Skipped ${name}"
+                    log_skipped "Submodule: ${name}"
                 fi
             done
             ;;
         0)
             log_warn "Submodule initialization skipped."
+            log_skipped "Submodule initialization"
             ;;
         *)
             log_error "Invalid choice. Skipping submodule initialization."
+            log_skipped "Submodule initialization (invalid choice)"
             ;;
     esac
 }
@@ -141,24 +187,35 @@ setup_developer_forks() {
     echo "to automatically set up your personal fork as 'origin' and the"
     echo "original repository as 'upstream'."
     echo ""
-    read -p "Enter your GitCode username (leave empty to skip): " USERNAME
+    if [[ "${AUTO_YES}" == true ]]; then
+        log_info "Auto-yes: skipping fork setup."
+        log_skipped "Developer fork setup"
+        return 0
+    fi
+    read -r -p "Enter your GitCode username (leave empty to skip): " USERNAME
 
     if [[ -n "${USERNAME}" ]]; then
-        local MAIN_FORK="git@gitcode.com:${USERNAME}/IB_Robot.git"
-        local LEROBOT_FORK="git@gitcode.com:${USERNAME}/lerobot_ros2.git"
+        local MAIN_FORK LEROBOT_FORK UPSTREAM_URL
+        if [[ "${GIT_HTTP}" == true ]]; then
+            MAIN_FORK="https://gitcode.com/${USERNAME}/IB_Robot.git"
+            LEROBOT_FORK="https://gitcode.com/${USERNAME}/lerobot_ros2.git"
+            UPSTREAM_URL="https://atomgit.com/openeuler/IB_Robot.git"
+        else
+            MAIN_FORK="git@gitcode.com:${USERNAME}/IB_Robot.git"
+            LEROBOT_FORK="git@gitcode.com:${USERNAME}/lerobot_ros2.git"
+            UPSTREAM_URL="git@atomgit.com:openeuler/IB_Robot.git"
+        fi
 
         echo -e "\nProposed Fork URLs:"
         echo -e "  Main Repo:    ${MAIN_FORK}"
         echo -e "  libs/lerobot: ${LEROBOT_FORK}"
         echo ""
-        read -p "Confirm setting these as 'origin'? [y/N]: " CONFIRM
-
-        if [[ "${CONFIRM}" == "y" || "${CONFIRM}" == "Y" ]]; then
+        if ask_yn "Confirm setting these as 'origin'?" "n"; then
             log_info "Configuring personal forks..."
             
             # 1. Update main repo remotes
             git remote set-url origin "${MAIN_FORK}"
-            git remote add upstream git@atomgit.com:openeuler/IB_Robot.git 2>/dev/null || git remote set-url upstream git@atomgit.com:openeuler/IB_Robot.git
+            git remote add upstream "${UPSTREAM_URL}" 2>/dev/null || git remote set-url upstream "${UPSTREAM_URL}"
 
             # 2. Update submodule fork
             if [[ -d "libs/lerobot/.git" ]]; then
@@ -168,8 +225,10 @@ setup_developer_forks() {
             fi
 
             log_info "Forks configured successfully!"
+            log_done "Developer forks configured (origin=${MAIN_FORK})"
         else
             log_info "Fork setup cancelled."
+            log_skipped "Developer fork setup (cancelled)"
         fi
     else
         log_info "Skipping fork setup."
@@ -179,16 +238,157 @@ setup_developer_forks() {
 # ============================================================================
 # Dependency Management
 # ============================================================================
+check_ros_installation() {
+    # Check if ROS 2 Humble is installed
+    if [[ ! -f /opt/ros/humble/setup.bash ]]; then
+        log_warn "ROS 2 Humble not found at /opt/ros/humble/setup.bash"
+        log_info "Running ROS 2 and colcon installation script..."
+
+        local install_args=()
+        if [[ "${AUTO_YES}" == true ]]; then
+            install_args+=("--yes")
+        fi
+
+        if "${WORKSPACE}/scripts/install_ros_colcon.sh" "${install_args[@]}"; then
+            log_done "ROS 2 Humble and colcon installed"
+        else
+            log_error "ROS 2 installation failed"
+            log_error "Please run ${WORKSPACE}/scripts/install_ros_colcon.sh manually to diagnose the issue"
+            exit 1
+        fi
+    else
+        log_info "ROS 2 Humble is already installed"
+    fi
+}
+
+check_openeuler() {
+    if uname -r | grep -qi "openeuler"; then
+        log_warn "openEuler detected. Setting ROS_OS_OVERRIDE=rhel:8 for rosdep compatibility."
+        export ROS_OS_OVERRIDE=rhel:8
+
+        if ! dnf repolist | grep -qi "openEuler-24.03-LTS"; then
+            local arch
+            arch=$(uname -m)
+            log_info "Adding openEuler repo for ${arch}..."
+            sudo dnf config-manager --add-repo "https://repo.openeuler.org/openEuler-24.03-LTS/OS/${arch}"
+            sudo dnf clean all && sudo dnf makecache
+        else
+            log_info "openEuler repo already configured, skipping add-repo."
+        fi
+
+        log_info "Installing gcc-c++ and vim-enhanced..."
+        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced
+    fi
+}
+
+ensure_rosdepc() {
+    if ! command -v rosdepc &> /dev/null; then
+        log_warn "rosdepc not found. Installing rosdepc (rosdep with Chinese mirror support)..."
+        if command -v pip3 &> /dev/null; then
+            pip3 install rosdepc
+        elif command -v pip &> /dev/null; then
+            pip install rosdepc
+        else
+            log_error "pip/pip3 not found. Cannot install rosdepc automatically."
+            exit 1
+        fi
+    fi
+
+    # Init if sources list doesn't exist yet
+    if [[ ! -d /etc/ros/rosdep/sources.list.d ]]; then
+        log_info "Initializing rosdepc..."
+        local init_output
+        init_output=$(sudo rosdepc init 2>&1)
+        local init_exit=$?
+
+        # Check both exit code and output for SSL/network errors
+        if [[ ${init_exit} -ne 0 ]] || echo "${init_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
+            if echo "${init_output}" | grep -qi "certificate\|ssl\|urlopen"; then
+                log_warn "SSL certificate error detected during rosdepc init:"
+                echo "${init_output}"
+                log_warn "Attempting to fix SSL certificates..."
+            else
+                log_warn "rosdepc init failed, attempting SSL certificate fix..."
+                echo "${init_output}"
+            fi
+
+            # Get the .pem path used by Python's ssl module
+            local ssl_pem
+            ssl_pem=$(python3 -c "import ssl; print(ssl.get_default_verify_paths().openssl_cafile)" 2>/dev/null)
+
+            if [[ -z "${ssl_pem}" ]]; then
+                log_error "Could not determine Python SSL certificate path."
+                exit 1
+            fi
+
+            # Find the first available system CA bundle
+            local ca_bundle=""
+            for candidate in \
+                /etc/pki/tls/certs/ca-bundle.crt \
+                /etc/ssl/certs/ca-bundle.crt \
+                /etc/ssl/certs/ca-certificates.crt; do
+                if [[ -f "${candidate}" ]]; then
+                    ca_bundle="${candidate}"
+                    break
+                fi
+            done
+
+            if [[ -z "${ca_bundle}" ]]; then
+                log_error "No system CA bundle found. Cannot fix SSL certificates."
+                exit 1
+            fi
+
+            log_info "Python SSL cert path: ${ssl_pem}"
+            log_info "System CA bundle: ${ca_bundle}"
+
+            log_warn "This fix will copy the system CA bundle to Python's SSL cert path."
+            log_warn "This is a global change that may affect other Python applications."
+            if ask_yn "Apply SSL certificate fix (copy system CA bundle to Python SSL path)?" "n"; then
+                log_info "Creating directory: $(dirname "${ssl_pem}")"
+                sudo mkdir -p "$(dirname "${ssl_pem}")"
+
+                if [[ -f "${ssl_pem}" ]]; then
+                    log_info "Backing up existing cert: ${ssl_pem} -> ${ssl_pem}.bak"
+                    sudo cp "${ssl_pem}" "${ssl_pem}.bak"
+                fi
+
+                log_info "Copying ${ca_bundle} -> ${ssl_pem}"
+                sudo cp "${ca_bundle}" "${ssl_pem}"
+                log_done "SSL certificate fix applied"
+
+                # Retry init, capture output again
+                local retry_output
+                if ! retry_output=$(sudo rosdepc init 2>&1) || echo "${retry_output}" | grep -qi "error\|failed\|certificate\|urlopen"; then
+                    log_error "rosdepc init failed even after SSL fix."
+                    echo "${retry_output}"
+                    log_error "Try running manually: sudo rosdepc init"
+                    exit 1
+                fi
+            else
+                log_warn "Skipped SSL fix. Please manually check your network or certificate configuration."
+                log_warn "You can also try running: sudo rosdepc init"
+                exit 1
+            fi
+        fi
+    fi
+}
+
 install_system_deps() {
+    # Check for ROS 2 installation first
+    check_ros_installation
+
+    check_openeuler
+    ensure_rosdepc
+
     if command -v apt-get &> /dev/null; then
         log_info "Updating apt package lists..."
         sudo apt-get update -qq
-        
-        log_info "Updating rosdep database..."
-        rosdep update --rosdistro=humble
-        
+
+        log_info "Updating rosdepc database..."
+        rosdepc update --rosdistro=humble
+
         log_info "Installing ROS dependencies via apt..."
-        rosdep install \
+        rosdepc install \
             --from-paths src \
             --ignore-src \
             --rosdistro=humble \
@@ -196,18 +396,27 @@ install_system_deps() {
             --skip-keys "catkin roscpp lerobot trimesh[easy] simple-parsing cupy-cuda12x ctl_system_interface numpy_lessthan_2 ament_python feetech-servo-sdk pyserial"
     elif command -v dnf &> /dev/null; then
         log_info "Updating dnf package repositories..."
-        # openEuler Embedded might not need full dnf update every time
-        
-        log_info "Updating rosdep database..."
-        rosdep update --rosdistro=humble
-        
+
+        log_info "Updating rosdepc database..."
+        rosdepc update --rosdistro=humble
+
         log_info "Installing ROS dependencies via dnf..."
-        rosdep install \
+        rosdepc install \
             --from-paths src \
             --ignore-src \
             --rosdistro=humble \
             -y -r \
-            --skip-keys "catkin roscpp lerobot trimesh[easy] simple-parsing cupy-cuda12x ctl_system_interface numpy_lessthan_2 ament_python feetech-servo-sdk pyserial"
+            --skip-keys=catkin \
+            --skip-keys=roscpp \
+            --skip-keys=lerobot \
+            --skip-keys=trimesh \
+            --skip-keys=simple-parsing \
+            --skip-keys=cupy-cuda12x \
+            --skip-keys=ctl_system_interface \
+            --skip-keys=numpy_lessthan_2 \
+            --skip-keys=ament_python \
+            --skip-keys=feetech-servo-sdk \
+            --skip-keys=pyserial
     else
         log_warn "Unknown package manager. Please ensure ROS 2 Humble dependencies are installed manually."
     fi
@@ -222,7 +431,7 @@ setup_python_venv() {
         sudo apt-get update -qq
         sudo apt-get install -y python3-venv python3-pip -qq
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y python3-virtualenv python3-pip -q
+        sudo dnf install -y --nogpgcheck python3-virtualenv python3-pip python3-devel -q
     fi
 
     # 2. 创建虚拟环境 (必须包含 --system-site-packages 以使用系统的 rclpy)
@@ -240,13 +449,9 @@ setup_python_venv() {
     # 升级 pip
     python3 -m pip install --upgrade pip --quiet
     
-    # 核心修复：强制安装 NumPy 1.x 以兼容 ROS 2 系统组件
-    log_info "Ensuring NumPy 1.x compatibility..."
-    python3 -m pip install "numpy<2" --quiet
-
     # 解决 setuptools 版本冲突 (兼容 LeRobot 和 colcon)
     python3 -m pip install "setuptools<80" "setuptools>=71" --quiet
-    
+
     # 以可编辑模式安装 LeRobot
     if [[ -d "${WORKSPACE}/libs/lerobot" ]]; then
         log_info "Installing LeRobot in editable mode..."
@@ -264,6 +469,11 @@ setup_python_venv() {
     # 安装 gitlint 并设置 git hook
     log_info "Installing gitlint..."
     python3 -m pip install gitlint --quiet
+
+    # 核心修复：所有依赖安装完毕后，强制固定 NumPy 1.26.4 以兼容 ROS 2 系统组件
+    # 必须放在最后，防止 lerobot/scipy 等依赖将 numpy 升级到 2.x
+    log_info "Pinning NumPy to 1.26.4 for ROS 2 compatibility..."
+    python3 -m pip install "numpy==1.26.4" --quiet
     log_info "Installing gitlint pre-commit hook..."
     gitlint install-hook
 
@@ -281,6 +491,15 @@ setup_python_venv() {
 # Main
 # ============================================================================
 main() {
+    # Parse arguments
+    for arg in "$@"; do
+        case "${arg}" in
+            --yes|-y) AUTO_YES=true ;;
+            --git-http) GIT_HTTP=true ;;
+            *) log_warn "Unknown argument: ${arg}" ;;
+        esac
+    done
+
     cd "${WORKSPACE}"
     
     # Check for conflicting environments
@@ -296,8 +515,18 @@ main() {
     
     # Install dependencies
     install_system_deps
+    log_done "System ROS dependencies installed"
     setup_python_venv
-    
+    log_done "Python virtual environment configured"
+
+    echo ""
+    echo -e "${YELLOW}============================================================${NC}"
+    echo -e "${YELLOW} Setup Summary${NC}"
+    echo -e "${YELLOW}============================================================${NC}"
+    for entry in "${SUMMARY[@]}"; do
+        echo -e "  ${entry}"
+    done
+    echo ""
     log_info "Setup complete! Run ./scripts/build.sh to build the workspace."
 }
 
