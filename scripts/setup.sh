@@ -278,6 +278,17 @@ check_openeuler() {
 
         log_info "Installing gcc-c++ and vim-enhanced..."
         sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced
+
+        # usb_cam is not available as a system package on openEuler,
+        # so we initialize the submodule to build from source.
+        if [[ ! -d "${WORKSPACE}/src/usb_cam/.git" ]]; then
+            log_info "usb_cam package not available on openEuler, initializing submodule for source build..."
+            export GIT_LFS_SKIP_SMUDGE=1
+            git submodule update --init --recursive src/usb_cam
+            log_done "usb_cam submodule initialized (source build for openEuler)"
+        else
+            log_info "usb_cam submodule already initialized."
+        fi
     fi
 }
 
@@ -416,7 +427,8 @@ install_system_deps() {
             --skip-keys=numpy_lessthan_2 \
             --skip-keys=ament_python \
             --skip-keys=feetech-servo-sdk \
-            --skip-keys=pyserial
+            --skip-keys=pyserial \
+            --skip-keys=usb_cam
     else
         log_warn "Unknown package manager. Please ensure ROS 2 Humble dependencies are installed manually."
     fi
