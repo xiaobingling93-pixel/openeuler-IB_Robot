@@ -220,3 +220,83 @@ def prepare_lerobot_env():
         env["PYTHONPATH"] = f"{lerobot_src}:{current_pp}" if current_pp else lerobot_src
 
     return env
+
+
+# ---------------------------------------------------------------------------
+# Joint unit-conversion helpers  (LeRobot percentage  ↔  ros2_control radians)
+# ---------------------------------------------------------------------------
+import json
+import math
+from typing import List, Optional, Tuple
+
+# Each entry: (rad_min, rad_max, pct_span, pct_offset)
+JointConversionEntry = Tuple[float, float, float, float]
+
+_TICKS_PER_RAD = 4096.0 / (2.0 * math.pi)
+
+
+def build_joint_conversion_table(
+    calib_file: str,
+    joint_names: List[str],
+    gripper_joints: Optional[List[str]] = None,
+) -> List[JointConversionEntry]:
+    """Build per-joint (rad_min, rad_max, pct_span, pct_offset) from calibration.
+
+    The C++ hardware layer converts  ticks ↔ radians  using a fixed formula::
+
+        rad  = (ticks - 2048) / (4096 / 2π)
+        ticks = rad * (4096 / 2π) + 2048
+
+    LeRobot normalises ticks to percentage-of-range values:
+
+    * Arm joints   – ``RANGE_M100_100``::
+
+          pct = (ticks - range_min) / (range_max - range_min) * 200 - 100
+
+    * Gripper       – ``RANGE_0_100``::
+
+          pct = (ticks - range_min) / (range_max - range_min) * 100
+
+    Combining the two gives a direct  rad ↔ pct  linear mapping whose
+    coefficients depend on each motor's calibrated ``range_min / range_max``.
+
+    Parameters
+    ----------
+    calib_file : str
+        Path to the calibration JSON produced by ``calibrate_arm``.
+    joint_names : list[str]
+        Ordered joint identifiers that match keys in the JSON (e.g. ["1","2",…,"6"]).
+    gripper_joints : list[str] | None
+        Joint names that use RANGE_0_100 (span=100, offset=0).
+        All other joints are assumed RANGE_M100_100 (span=200, offset=-100).
+
+    Returns
+    -------
+    list[JointConversionEntry]
+        One ``(rad_min, rad_max, pct_span, pct_offset)`` per joint.
+    """
+    if gripper_joints is None:
+        gripper_joints = []
+
+    with open(calib_file, "r") as fh:
+        calib = json.load(fh)
+
+    table: List[JointConversionEntry] = []
+    for jname in joint_names:
+        entry = calib[jname]
+        tick_min = entry["range_min"]
+        tick_max = entry["range_max"]
+
+        rad_min = (tick_min - 2048.0) / _TICKS_PER_RAD
+        rad_max = (tick_max - 2048.0) / _TICKS_PER_RAD
+
+        if jname in gripper_joints:
+            pct_span = 100.0
+            pct_offset = 0.0
+        else:
+            pct_span = 200.0
+            pct_offset = -100.0
+
+        table.append((rad_min, rad_max, pct_span, pct_offset))
+
+    return table

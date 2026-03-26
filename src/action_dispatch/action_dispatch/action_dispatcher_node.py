@@ -29,6 +29,7 @@ from std_srvs.srv import Empty
 from ibrobot_msgs.action import DispatchInfer
 from ibrobot_msgs.msg import VariantsList
 from robot_config.contract_utils import iter_specs
+from robot_config.utils import build_joint_conversion_table
 from tensormsg.converter import TensorMsgConverter
 
 from .topic_executor import TopicExecutor
@@ -105,12 +106,37 @@ class ActionDispatcherNode(Node):
         # 4. Load Contract (Essential for TopicExecutor mapping)
         robot_config_path = self.get_parameter('robot_config_path').value
         self._action_specs = []
+        self._joint_rad_limits = []  # populated from calibration below
         if robot_config_path:
             try:
                 from robot_config.loader import load_robot_config
-                self._contract = load_robot_config(robot_config_path).to_contract()
+                robot_cfg = load_robot_config(robot_config_path)
+                self._contract = robot_cfg.to_contract()
                 self._action_specs = [s for s in iter_specs(self._contract) if s.is_action]
                 self.get_logger().info(f"Loaded {len(self._action_specs)} action specs from robot_config")
+
+                # Build unit conversion table from calibration file
+                calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
+                joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
+                gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
+                if calib_file and joint_names:
+                    self._joint_rad_limits = build_joint_conversion_table(
+                        calib_file, joint_names, gripper_joints,
+                    )
+                    self.get_logger().info(
+                        f"Loaded joint conversion table from {calib_file}: "
+                        f"{len(self._joint_rad_limits)} joints"
+                    )
+                    for i, (rmin, rmax, span, off) in enumerate(self._joint_rad_limits):
+                        self.get_logger().info(
+                            f"  joint {joint_names[i]}: rad=[{rmin:.4f}, {rmax:.4f}], "
+                            f"pct_span={span}, pct_offset={off}"
+                        )
+                else:
+                    self.get_logger().warn(
+                        "Missing calib_file or joint_names in config; "
+                        "unit conversion disabled (pass-through)"
+                    )
             except Exception as e:
                 self.get_logger().error(f"Failed to load contract from {robot_config_path}: {e}")
         else:
@@ -120,19 +146,6 @@ class ActionDispatcherNode(Node):
         self._executor = TopicExecutor(self, {'action_specs': self._action_specs})
         if not self._executor.initialize():
             raise RuntimeError("Failed to initialize TopicExecutor")
-
-        # -- Unit conversion table: LeRobot percentage <-> ros2_control radians
-        # LeRobot stores arm joints as RANGE_M100_100 [-100,+100] and gripper
-        # as RANGE_0_100 [0,100].  ros2_control expects radians.
-        self._joint_rad_limits = [
-            # (rad_min,  rad_max,  pct_span, pct_offset)
-            (-2.0693,   2.0709,   200.0,    -100.0),   # joint 1
-            (-1.92,     1.92,     200.0,    -100.0),   # joint 2
-            (-1.6813,   1.6828,   200.0,    -100.0),   # joint 3
-            (-1.65806,  1.65806,  200.0,    -100.0),   # joint 4
-            (-2.9115,   2.9115,   200.0,    -100.0),   # joint 5
-            ( 0.0,      1.0,      100.0,      0.0),    # joint 6 (gripper)
-        ]
 
         # 6. Communication
         self._infer_client = rclpy.action.ActionClient(self, DispatchInfer, self._server_name)
@@ -177,6 +190,8 @@ class ActionDispatcherNode(Node):
 
     def _lerobot_to_rad(self, action: np.ndarray) -> np.ndarray:
         """Convert LeRobot percentage units to radians for ros2_control."""
+        if not self._joint_rad_limits:
+            return action  # no calibration loaded, pass-through
         out = np.empty_like(action, dtype=np.float64)
         for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
             if i < len(action):

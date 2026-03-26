@@ -65,6 +65,7 @@ from robot_config.contract_utils import (
     decode_value,
     stamp_from_header_ns,
 )
+from robot_config.utils import build_joint_conversion_table
 
 from inference_service.core import (
     InferenceCoordinator,
@@ -151,6 +152,7 @@ class LeRobotPolicyNode(Node):
         self._state_specs: List[SpecView] = []
         self._policy_config: Optional[Dict] = None
         self._required_inputs: set = set()  # Input features required by model
+        self._joint_rad_limits: list = []   # populated in _load_contract()
         
         # Load model config first to get required inputs
         self._load_policy_config()
@@ -209,7 +211,26 @@ class LeRobotPolicyNode(Node):
             raise RuntimeError(f"Robot config file not found: {robot_config_path}")
         
         from robot_config.loader import load_robot_config
-        self._contract = load_robot_config(robot_config_path).to_contract()
+        robot_cfg = load_robot_config(robot_config_path)
+        self._contract = robot_cfg.to_contract()
+
+        # Build joint conversion table from calibration file
+        calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
+        joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
+        gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
+        if calib_file and joint_names:
+            self._joint_rad_limits = build_joint_conversion_table(
+                calib_file, joint_names, gripper_joints,
+            )
+            self.get_logger().info(
+                f"Loaded joint conversion table from calibration: "
+                f"{len(self._joint_rad_limits)} joints"
+            )
+        else:
+            self._joint_rad_limits = []
+            self.get_logger().warn(
+                "Missing calib_file or joint_names; rad↔pct conversion disabled"
+            )
         
         # Get all observation specs from contract
         all_obs_specs = [s for s in iter_specs(self._contract) if not s.is_action]
@@ -427,20 +448,15 @@ class LeRobotPolicyNode(Node):
     # The mapping is:  pct = (rad - rad_min) / (rad_max - rad_min) * span + offset
     #   RANGE_M100_100:  span=200, offset=-100
     #   RANGE_0_100:     span=100, offset=0
-    _JOINT_RAD_LIMITS = [
-        # (rad_min,  rad_max,  pct_span, pct_offset)
-        (-2.0693,   2.0709,   200.0,    -100.0),   # joint 1
-        (-1.92,     1.92,     200.0,    -100.0),   # joint 2
-        (-1.6813,   1.6828,   200.0,    -100.0),   # joint 3
-        (-1.65806,  1.65806,  200.0,    -100.0),   # joint 4
-        (-2.9115,   2.9115,   200.0,    -100.0),   # joint 5
-        ( 0.0,      1.0,      100.0,      0.0),    # joint 6 (gripper)
-    ]
+    # _joint_rad_limits is populated at runtime from the calibration JSON
+    # in _load_contract() via build_joint_conversion_table().
 
     def _rad_to_lerobot(self, state: np.ndarray) -> np.ndarray:
         """Convert radians to LeRobot percentage units."""
+        if not self._joint_rad_limits:
+            return state  # no calibration loaded, pass-through
         out = np.empty_like(state, dtype=np.float64)
-        for i, (rmin, rmax, span, offset) in enumerate(self._JOINT_RAD_LIMITS):
+        for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
             if i < len(state):
                 out[i] = (state[i] - rmin) / (rmax - rmin) * span + offset
         return out
