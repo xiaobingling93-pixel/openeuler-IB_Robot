@@ -23,7 +23,7 @@ robot:
   # ============================================
   models:
     so101_act:
-      path: /home/xqw/Research/IB_Robot/models/502000/pretrained_model
+      path: ./models/502000/pretrained_model
       policy_type: act
       # Normalization parameters (optional, for future use)
       normalization:
@@ -346,12 +346,25 @@ robot:
   # ============================================
   teleoperation:
     enabled: true
-    active_device: "so101_leader"
+    active_device: "so101_leader" # You can switch between "so101_leader" and "xbox_controller"
     devices:
       - name: "so101_leader"
         type: "leader_arm"
         port: "/dev/ttyACM1"
         calib_file: "$(env HOME)/.calibrate/so101_leader_calibrate.json"
+
+      - name: "xbox_controller"
+        type: "xbox_controller"
+        input_device: "/dev/input/js0"
+        default_mode: "joint"
+        mapping_config: "xbox_mapping"
+        servo_config: "so101_servo"
+        control_params:
+          deadzone: 0.1
+          joint_velocity_gain: 1.5
+          cartesian_linear_speed: 1.0
+          cartesian_angular_speed: 1.0
+          long_press_duration: 0.5
     safety:
       joint_limits:
         "1": {"min": -2.0693, "max": 2.0709}

@@ -23,8 +23,8 @@ class LeaderArmDevice(BaseTeleopDevice):
     applies calibration offsets, and maps to follower joint names.
     """
 
-    def __init__(self, config: dict):
-        super().__init__(config)
+    def __init__(self, config: dict, node=None):
+        super().__init__(config, node=node)
 
         # Configuration
         self.port = config.get("port", "/dev/ttyACM1")

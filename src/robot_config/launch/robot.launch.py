@@ -207,8 +207,9 @@ def launch_setup(context, *args, **kwargs):
     # ========== 4. Generate Control System Nodes ==========
     print(f"[robot_config] ========== Generating Control Nodes ==========")
     deferred_sim_spawners = []
+    robot_description = {}
     try:
-        control_nodes, spawners_dict, deferred_sim_spawners = generate_ros2_control_nodes(
+        control_nodes, spawners_dict, deferred_sim_spawners, robot_description = generate_ros2_control_nodes(
             robot_config, use_sim, auto_start_controllers
         )
         actions.extend(control_nodes)
@@ -298,9 +299,28 @@ def launch_setup(context, *args, **kwargs):
                 print(f"[robot_config] WARNING: Teleop mode requested but teleoperation config not found")
             else:
                 # Generate teleop nodes
-                teleop_nodes = generate_teleop_nodes(robot_config)
-                actions.extend(teleop_nodes)
-                print(f"[robot_config] Added {len(teleop_nodes)} teleop nodes")
+                teleop_nodes = generate_teleop_nodes(robot_config, robot_description)
+
+                # Find a trigger spawner (arm_position_controller is best for teleop)
+                trigger_spawner = spawners_dict.get('arm_position_controller')
+                if not trigger_spawner and deferred_sim_spawners:
+                    # In sim, we might need to find it in the deferred list
+                    trigger_spawner = deferred_sim_spawners[-1]
+
+                if trigger_spawner:
+                    print(f"[robot_config] Delaying teleop nodes until controller spawner exits...")
+                    _teleop_nodes = teleop_nodes
+                    actions.append(RegisterEventHandler(
+                        event_handler=OnProcessExit(
+                            target_action=trigger_spawner,
+                            on_exit=lambda event, context: _teleop_nodes,
+                        )
+                    ))
+                else:
+                    print(f"[robot_config] No controller spawner found, launching teleop immediately")
+                    actions.extend(teleop_nodes)
+
+                print(f"[robot_config] Prepared {len(teleop_nodes)} teleop nodes")
         else:
             print(f"[robot_config] Skipping teleop nodes (mode is {active_control_mode})")
     except Exception as e:

@@ -26,15 +26,17 @@ class BaseTeleopDevice(ABC):
         logger: Python logger for device messages
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, node=None):
         """
         Initialize the teleoperation device.
 
         Args:
             config (dict): Device configuration from robot_config YAML
+            node: Optional ROS 2 node instance for creating subscribers/publishers
         """
         self._is_connected = False
         self._config = config
+        self._node = node
         self.logger = logging.getLogger(self.__class__.__name__)
 
     @property

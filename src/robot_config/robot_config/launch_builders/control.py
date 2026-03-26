@@ -67,7 +67,7 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         auto_start_controllers: Whether to automatically start controllers (string or bool)
 
     Returns:
-        Tuple: (nodes, spawners_dict, deferred_sim_spawners)
+        Tuple: (nodes, spawners_dict, deferred_sim_spawners, robot_description)
         In Gazebo simulation, controller spawners are returned in
         ``deferred_sim_spawners`` (not included in ``nodes``) so launch can
         start them after ``ros_gz_sim create`` exits.
@@ -82,63 +82,19 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
 
     if not ros2_control_config:
         print("[robot_config] No ros2_control configuration found")
-        return nodes, spawners_dict, deferred_sim_spawners
+        return nodes, spawners_dict, deferred_sim_spawners, {}
 
     print("[robot_config] Creating ros2_control nodes")
 
     # Validate joint configuration
     validate_joint_config(robot_config)
 
-    # Get URDF path
-    urdf_path = ros2_control_config.get("urdf_path")
-    if not urdf_path:
-        print("[robot_config] WARNING: No urdf_path specified")
-        return nodes, spawners_dict
+    # Build URDF (xacro processing + camera injection) via description layer
+    _desc_result = generate_robot_description(robot_config, use_sim)
+    if _desc_result is None:
+        return nodes, spawners_dict, deferred_sim_spawners, {}
 
-    urdf_path = resolve_ros_path(urdf_path)
-    print(f"[robot_config] URDF path: {urdf_path}")
-
-    if not Path(urdf_path).exists():
-        print(f"[robot_config] WARNING: URDF file not found at {urdf_path}")
-        return nodes, spawners_dict
-
-    # Get hardware parameters
-    port = ros2_control_config.get("port", "/dev/ttyACM0")
-    calib_file = resolve_ros_path(ros2_control_config.get("calib_file", ""))
-
-    # Handle reset_positions
-    reset_positions_dict = ros2_control_config.get("reset_positions", {})
-    reset_positions_json = json.dumps(reset_positions_dict)
-
-    # Run xacro to generate robot_description (URDF XML string)
-    xacro_executable = shutil.which('xacro')
-    if not xacro_executable:
-        print("[robot_config] ERROR: xacro executable not found on PATH")
-        return nodes, spawners_dict
-
-    xacro_cmd = (
-        f"{xacro_executable} {urdf_path}"
-        f" use_sim:={'true' if is_sim else 'false'}"
-        f" port:={port}"
-        f" calib_file:={calib_file}"
-        f" reset_positions:='{reset_positions_json}'"
-    )
-    print(f"[robot_config] Running xacro: {xacro_cmd}")
-
-    try:
-        result = subprocess.run(
-            xacro_cmd, shell=True,
-            capture_output=True, text=True, check=True,
-        )
-        robot_description_str = result.stdout
-    except subprocess.CalledProcessError as e:
-        print(f"[robot_config] ERROR running xacro: {e.stderr}")
-        raise
-
-    robot_description = {"robot_description": robot_description_str}
-
-    if is_sim:
-        robot_description["use_sim_time"] = True
+    robot_description_str, robot_description = _desc_result
 
     # Robot State Publisher
     nodes.append(Node(
@@ -231,4 +187,4 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
                 if i < len(deferred_sim_spawners):
                     spawners_dict[name] = deferred_sim_spawners[i]
 
-    return nodes, spawners_dict, deferred_sim_spawners
+    return nodes, spawners_dict, deferred_sim_spawners, robot_description
