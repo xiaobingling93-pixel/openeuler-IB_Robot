@@ -6,6 +6,7 @@
 
 | 技能名称 | 分类 | 主要触发场景 (Triggers) |
 | :--- | :--- | :--- |
+| [intro](./intro) | 引导 | 「介绍」「有哪些功能」「help」「入门」「intro」等，作为所有 skill 的导航入口。 |
 | [ibrobot-env](./ibrobot-env) | 环境 | 加载 `.shrc_local`、设置 `ROS_DOMAIN_ID`、解决 `ModuleNotFoundError` 等。 |
 | [ibrobot-build](./ibrobot-build) | 操作 | 执行项目编译 (`colcon build`)、构建特定 package 或修复编译错误。 |
 | [ibrobot-launch](./ibrobot-launch) | 操作 | 启动机器人系统、运行仿真、测试 ACT 推理或进行遥操作调试。 |
@@ -19,6 +20,10 @@
 ---
 
 ## 技能分类说明
+
+### 🧭 引导入口
+
+- **技能导航 ([intro](./intro))**: 所有 skill 的统一入口，展示分类列表与使用示例，并根据仓库状态智能推荐最合适的 skill。
 
 ### 🤖 IB-Robot 核心操作
 这些技能旨在处理 IB-Robot 软件栈特有的日常开发任务。

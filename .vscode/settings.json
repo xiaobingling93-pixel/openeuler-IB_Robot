@@ -29,5 +29,6 @@
     "ros.distro": "humble",
     "ros.setupSource": "/opt/ros/humble/setup.sh",
     "rde.ros.distro": "humble",
-    "rde.ros.setupSource": "/opt/ros/humble/setup.sh"
+    "rde.ros.setupSource": "/opt/ros/humble/setup.sh",
+    "ROS2.distro": "humble"
 }

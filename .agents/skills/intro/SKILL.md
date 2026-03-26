@@ -1,0 +1,93 @@
+---
+name: intro
+description: 'IB-Robot 技能引导入口。当用户输入"介绍"、"有哪些功能"、"有哪些skill"、"我应该用哪个skill"、"help"、"帮助"、"入门"、"intro"、"getting started"、"what skills"、"list skills"、"available commands"、"能做什么"、"怎么用"或首次接触项目时使用。作为所有其他 skill 的统一导航起点，展示分类列表、使用示例并根据仓库当前状态推荐最合适的 skill。'
+---
+
+# 🤖 IB-Robot Copilot Skill 引导中心
+
+Agent 在触发本 skill 时，**必须首先**向用户展示以下欢迎文案（原样输出，不做修改）：
+
+> 🤖 **欢迎使用 IB-Robot AI Agent！**
+
+---
+
+## 📋 技能分类列表
+
+### 🤖 机器人操作
+
+| Skill | 一句话描述 |
+| :--- | :--- |
+| **ibrobot-launch** | 启动机器人节点、仿真环境、推理测试或遥操作调试 |
+| **ibrobot-build** | 编译整个工作空间或指定 package（`colcon build`） |
+| **ibrobot-env** | 初始化运行环境，加载 `.shrc_local`、设置 `ROS_DOMAIN_ID` |
+| **ibrobot-architecture** | 理解 SSOT 架构设计、配置规范与数据流 |
+
+### 🔍 代码协作
+
+| Skill | 一句话描述 |
+| :--- | :--- |
+| **atomgit-code-review** | 对 PR 进行代码质量审查，发现 Bug 与逻辑问题 |
+| **atomgit-architecture-review** | 检查 PR 是否符合 SSOT、契约驱动等架构规范 |
+| **atomgit-code-review-repair** | 根据 AtomGit 上的检视意见自动修复代码 |
+
+### 📝 项目管理
+
+| Skill | 一句话描述 |
+| :--- | :--- |
+| **atomgit-submit-pr** | 创建或更新合并请求（PR），自动生成描述 |
+| **atomgit-submit-issue** | 创建或管理 Issue，报告 Bug、提出建议 |
+
+### 🚀 工作流
+
+| Skill | 一句话描述 |
+| :--- | :--- |
+| **ibrobot-git-flow** | 规范提交代码，确保符合 openEuler DCO/Commit 规范 |
+
+---
+
+## 💡 使用示例
+
+只需用自然语言告诉 Agent 你想做什么：
+
+```
+帮我审查 #25 号 PR              → atomgit-code-review
+帮我更新 PR 描述                → atomgit-submit-pr
+帮我提交一个 Issue              → atomgit-submit-issue
+修复 PR 里的评审意见            → atomgit-code-review-repair
+编译一下项目                    → ibrobot-build
+启动机器人仿真                  → ibrobot-launch
+初始化环境                      → ibrobot-env
+提交代码                        → ibrobot-git-flow
+检查架构合规性                  → atomgit-architecture-review
+解释系统架构                    → ibrobot-architecture
+有哪些功能 / help / 入门       → intro (本技能)
+```
+
+---
+
+## 🎯 当前推荐（上下文感知）
+
+Agent 在触发本 skill 时，**必须**执行以下脚本来获取基于仓库当前状态的智能推荐：
+
+```bash
+source .shrc_local && python3 .agents/skills/intro/scripts/intro.py
+```
+
+脚本会检测以下仓库状态并输出推荐信息：
+
+| 检测条件 | 推荐 Skill |
+| :--- | :--- |
+| 有未提交的代码改动 (`git status`) | `ibrobot-git-flow` 或 `atomgit-submit-pr` |
+| 编译产物缺失（`install/` 目录为空或不存在） | `ibrobot-build` |
+| 存在 open 状态的 PR 且有未回复评论 | `atomgit-code-review-repair` |
+| 无特殊状态 | 展示「今日推荐」skill |
+
+Agent 应将脚本输出的推荐内容展示给用户，帮助用户快速进入正确的工作流。
+
+---
+
+## 🔧 技术细节
+
+- **环境依赖**: 执行推荐检测脚本前需先 `source .shrc_local` 加载环境
+- **配置文件**: AtomGit 相关功能依赖 `config.json` 中的 Token 配置
+- **脚本位置**: `.agents/skills/intro/scripts/intro.py`
