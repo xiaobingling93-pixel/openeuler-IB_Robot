@@ -4,7 +4,7 @@ Minimal serial-to-controller bridge for zero-latency teleoperation.
 
 ## Overview
 
-The `robot_teleop` package provides a unified teleoperation interface for IB-Robot, supporting multiple teleoperation devices (leader arms, gamepads, VR controllers) through a device abstraction layer.
+The `robot_teleop` package provides a unified teleoperation interface for IB-Robot, supporting multiple teleoperation devices (leader arms, phones, gamepads, VR controllers) through a device abstraction layer.
 
 **Key Features:**
 - ✅ Zero-latency control (< 5ms end-to-end)

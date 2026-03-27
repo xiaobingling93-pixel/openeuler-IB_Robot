@@ -16,6 +16,8 @@
 
   <!-- Runtime dependencies -->
   <depend>rclpy</depend>
+  <exec_depend>pymoveit2</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>

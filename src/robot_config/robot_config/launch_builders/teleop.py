@@ -192,8 +192,8 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
         nodes.append(joy_node)
         print(f"[teleop_builder] Added joy_node for input device: {input_dev}")
 
-    # Add MoveIt Servo node for Xbox controller
-    if device_config.get('type') == 'xbox_controller':
+    # Add MoveIt Servo node for Xbox controller and phone (both use Cartesian Servo control)
+    if device_config.get('type') in ('xbox_controller', 'phone'):
         servo_node = _create_servo_node(robot_config, device_config, robot_description_dict)
         nodes.append(servo_node)
         print(f"[teleop_builder] Generated servo_node for Cartesian control")

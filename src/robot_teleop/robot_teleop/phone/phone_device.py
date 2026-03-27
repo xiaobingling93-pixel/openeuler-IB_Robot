@@ -14,7 +14,7 @@ from typing import Dict, Optional, Tuple, Any
 import numpy as np
 
 from ..base_teleop import BaseTeleopDevice
-from ..utils.rotation import Rotation
+from scipy.spatial.transform import Rotation
 from .config_phone import PhoneConfig, PhoneOS
 
 logger = logging.getLogger(__name__)
@@ -389,7 +389,7 @@ class PhoneDevice(BaseTeleopDevice):
         self._joint_state_sub = None
         self._current_joint_states: Dict[str, float] = {}
         self._first_state_received = False
-        self._going_home = False
+        self._going_home = True   # Auto-home on first connect; Servo enabled after arm reaches home
         self._home_start_time: Optional[float] = None
 
         # Injected by teleop.py launch builder
@@ -426,11 +426,8 @@ class PhoneDevice(BaseTeleopDevice):
             self._joint_state_sub = self._node.create_subscription(
                 JointState, '/joint_states', self._joint_state_callback, 10)
 
-            # Use async enable: sync=True deadlocks because the executor
-            # (rclpy.spin) has not started yet when connect() is called from __init__.
-            self.servo_client.enable(sync=False)
-
             self._is_connected = True
+            self._home_start_time = self._node.get_clock().now().nanoseconds * 1e-9
             return True
 
         except Exception as e:
@@ -456,6 +453,9 @@ class PhoneDevice(BaseTeleopDevice):
             return self._compute_home_targets(
                 current_joints, first_state_rcvd, home_start_time)
 
+        if self.servo_client and not self.servo_client.is_enabled:
+            return {}
+
         cmd = self._get_cmd_internal()
         if cmd is None:
             return {}
@@ -470,9 +470,12 @@ class PhoneDevice(BaseTeleopDevice):
                 current_joints, first_state_rcvd,
                 self._node.get_clock().now().nanoseconds * 1e-9)
 
-        # Cartesian control: delta/dt → velocity, preserving axis remapping from _compute
-        linear = tuple(float(v) / self._control_dt for v in cmd.linear)
-        angular = tuple(float(v) / self._control_dt for v in cmd.angular)
+        # Cartesian control: normalize displacement to [-1, 1] for MoveIt Servo unitless mode.
+        # cmd.linear is already clamped to max_ee_step_m, so dividing gives values in [-1, 1].
+        max_lin = self.phone_config.max_ee_step_m
+        max_ang = self.phone_config.max_angular_step_rad
+        linear = tuple(float(v) / max_lin for v in cmd.linear)
+        angular = tuple(float(v) / max_ang for v in cmd.angular)
         self.servo_client.servo(linear=linear, angular=angular)  # ROS call, outside lock
 
         return {self.gripper_joint_names[0]: cmd.gripper_pos}

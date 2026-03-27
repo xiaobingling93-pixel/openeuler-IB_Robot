@@ -358,31 +358,16 @@ def launch_setup(context, *args, **kwargs):
         with_moveit_str = context.launch_configurations.get('with_moveit', '')
         moveit_display = parse_bool(context.launch_configurations.get('moveit_display', 'true'), default=True)
 
-        # Detect phone device — needs MoveIt Servo
-        teleop_config = robot_config.get('teleoperation', {})
-        active_device_name = teleop_config.get('active_device', '')
-        active_device_cfg = next(
-            (d for d in teleop_config.get('devices', []) if d.get('name') == active_device_name),
-            {}
-        )
-        phone_teleop_active = (
-            active_control_mode == 'teleop' and active_device_cfg.get('type') == 'phone'
-        )
-
         if with_moveit_str != '':
             with_moveit = parse_bool(with_moveit_str, default=False)
         else:
-            with_moveit = (
-                'moveit' in active_control_mode.lower()
-                or 'servo' in active_control_mode.lower()
-                or phone_teleop_active
-            )
-        
+            with_moveit = 'moveit' in active_control_mode.lower()
+
         print(f"[robot_config] with_moveit={with_moveit}")
 
         if with_moveit:
             from robot_config.launch_builders.moveit import generate_moveit_nodes
-            moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display, with_servo=phone_teleop_active)
+            moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display)
             
             # Find the joint_state_broadcaster spawner to use as a trigger
             jsb_spawner = spawners_dict.get('joint_state_broadcaster')
