@@ -33,8 +33,8 @@ def check_uncommitted_changes() -> dict:
             capture_output=True, text=True, check=True
         )
         lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
-        staged = [l for l in lines if l[:2].strip() and not l[1] == " " or l[0] in ("A", "M", "D", "R")]
-        unstaged = [l for l in lines if l[1] in ("M", "D", "?")]
+        staged = [l for l in lines if l[0] in ("A", "M", "D", "R", "C")]
+        unstaged = [l for l in lines if l[1] in ("M", "D")]
 
         return {
             "has_changes": len(lines) > 0,
@@ -52,8 +52,8 @@ def check_build_artifacts(project_root: Path) -> dict:
     install_dir = project_root / "install"
     build_dir = project_root / "build"
 
-    install_exists = install_dir.exists() and any(install_dir.iterdir()) if install_dir.exists() else False
-    build_exists = build_dir.exists() and any(build_dir.iterdir()) if build_dir.exists() else False
+    install_exists = install_dir.exists() and any(install_dir.iterdir())
+    build_exists = build_dir.exists() and any(build_dir.iterdir())
 
     return {
         "install_exists": install_exists,
@@ -153,17 +153,15 @@ def generate_recommendations(
             "trigger": "编译一下项目",
         })
 
-    # 优先级 2: 有未回复评论的 PR
+    # 优先级 2: 有未回复评论的 PR（最多显示一个）
     if prs.get("prs_with_comments"):
-        for pr_info in prs["prs_with_comments"]:
+        for pr_info in prs["prs_with_comments"][:1]:
             recommendations.append({
                 "skill": "atomgit-code-review-repair",
                 "reason": f"PR #{pr_info['number']}「{pr_info['title']}」有 {pr_info['comment_count']} 条评论待处理",
                 "priority": "🟡 中",
                 "trigger": f"修复 #{pr_info['number']} 号 PR 的评审意见",
             })
-        # 最多显示一个 PR 推荐
-        break_after_first = True
 
     # 优先级 3: 有未提交的改动
     if changes.get("has_changes"):
