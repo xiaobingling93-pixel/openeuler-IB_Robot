@@ -14,7 +14,7 @@ from typing import Dict, List, Any
 from robot_config.utils import resolve_ros_path, prepare_lerobot_env
 
 
-def generate_teleop_nodes(robot_config: dict) -> List[Node]:
+def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = None) -> List[Node]:
     """
     Generate teleoperation nodes based on robot configuration.
 
@@ -23,6 +23,7 @@ def generate_teleop_nodes(robot_config: dict) -> List[Node]:
 
     Args:
         robot_config: Robot configuration dictionary loaded from YAML
+        robot_description_dict: Dictionary containing robot_description (URDF)
 
     Returns:
         List of Node actions for teleoperation
@@ -30,7 +31,7 @@ def generate_teleop_nodes(robot_config: dict) -> List[Node]:
     Example:
         >>> from robot_config.launch_builders.teleop import generate_teleop_nodes
         >>> config = load_robot_config('so101_single_arm')
-        >>> nodes = generate_teleop_nodes(config)
+        >>> nodes = generate_teleop_nodes(config, {'robot_description': '...'})
         >>> ld.add_action(nodes[0])
 
     Configuration Format:
@@ -143,7 +144,100 @@ def generate_teleop_nodes(robot_config: dict) -> List[Node]:
     nodes.append(teleop_node)
     print(f"[teleop_builder] Generated teleop node for device: {active_device_name} (type: {device_config.get('type')})")
 
+    # Add joy_node to read physical joystick and publish to /joy
+    if device_config.get('type') == 'xbox_controller':
+        input_dev = device_config.get('input_device', '/dev/input/js0')
+        joy_node = Node(
+            package='joy',
+            executable='joy_node',
+            name='joy_node',
+            parameters=[{
+                'device_id': 0,
+                'device_name': '',
+                'deadzone': 0.1,
+                'autorepeat_rate': 20.0,
+                'sticky_buttons': False,
+            }],
+            output='screen'
+        )
+        nodes.append(joy_node)
+        print(f"[teleop_builder] Added joy_node for input device: {input_dev}")
+
+    # Add MoveIt Servo node for Xbox controller
+    if device_config.get('type') == 'xbox_controller':
+        servo_node = _create_servo_node(robot_config, device_config, robot_description_dict)
+        nodes.append(servo_node)
+        print(f"[teleop_builder] Generated servo_node for Cartesian control")
+
     return nodes
+
+
+def _create_servo_node(robot_config: dict, device_config: dict, robot_description_dict: dict = None) -> Node:
+    """Create MoveIt Servo node."""
+    from robot_config.utils import resolve_ros_path
+    import yaml
+
+    # 1. Load servo parameters
+    servo_config_name = device_config.get('servo_config', 'so101_servo')
+    servo_params_path = resolve_ros_path(f"$(find robot_moveit)/config/{servo_config_name}.yaml")
+
+    with open(servo_params_path, 'r') as f:
+        servo_params = yaml.safe_load(f)
+
+    # 2. Build MoveIt configuration manually for robustness
+    # MoveItConfigsBuilder can be finicky with relative paths in different environments
+    robot_type = robot_config.get('type', 'so101')
+
+    moveit_params = {}
+    try:
+        # Load SRDF (Semantic Robot Description Format)
+        srdf_path = resolve_ros_path(f"$(find robot_moveit)/config/lerobot/{robot_type}/{robot_type}.srdf")
+        if os.path.exists(srdf_path):
+            with open(srdf_path, 'r') as f:
+                moveit_params["robot_description_semantic"] = f.read()
+            print(f"[teleop_builder] Loaded SRDF from {srdf_path}")
+        else:
+            print(f"[teleop_builder] WARNING: SRDF not found at {srdf_path}")
+
+        # Load Kinematics
+        kinematics_path = resolve_ros_path(f"$(find robot_moveit)/config/lerobot/{robot_type}/kinematics.yaml")
+        if os.path.exists(kinematics_path):
+            with open(kinematics_path, 'r') as f:
+                moveit_params["robot_description_kinematics"] = yaml.safe_load(f)
+            print(f"[teleop_builder] Loaded kinematics from {kinematics_path}")
+
+        # Load Joint Limits
+        joint_limits_path = resolve_ros_path(f"$(find robot_moveit)/config/lerobot/{robot_type}/joint_limits.yaml")
+        if os.path.exists(joint_limits_path):
+            with open(joint_limits_path, 'r') as f:
+                joint_limits_data = yaml.safe_load(f)
+                moveit_params.update(joint_limits_data)
+                # MoveIt 2 nodes also look for joint_limits under robot_description_planning
+                moveit_params["robot_description_planning"] = joint_limits_data
+            print(f"[teleop_builder] Loaded joint limits from {joint_limits_path}")
+    except Exception as e:
+        print(f"[teleop_builder] WARNING: Failed to manually load MoveIt configs: {e}")
+
+    # Merge robot_description_dict to ensure robot_description
+    # and use_sim_time are always present (from description layer)
+    if robot_description_dict:
+        moveit_params.update(robot_description_dict)
+        # If use_sim_time is true, also tell moveit_servo to use gazebo if configured
+        if robot_description_dict.get("use_sim_time"):
+            servo_params["use_gazebo"] = True
+
+    # Create the servo node
+    servo_node = Node(
+        package='moveit_servo',
+        executable='servo_node_main',
+        name='servo_node',
+        output='screen',
+        parameters=[
+            {"moveit_servo": servo_params},
+            moveit_params,
+        ],
+    )
+    return servo_node
 
 
 def validate_teleop_config(teleop_config: Dict[str, Any]) -> List[str]:

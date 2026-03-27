@@ -8,39 +8,26 @@ configuration, enabling easy extension without modifying core code.
 from typing import Dict, Type
 from .base_teleop import BaseTeleopDevice
 from .devices.leader_arm import LeaderArmDevice
+from .devices.xbox_controller import XboxTeleopDevice
 
 
 # Device registry - add new device types here
 DEVICE_MAP: Dict[str, Type[BaseTeleopDevice]] = {
     "leader_arm": LeaderArmDevice,  # SO-101 leader arm
-    # "xbox_controller": XboxDevice,   # Future implementation
-    # "vr_device": VRDevice,            # Future implementation
+    "xbox_controller": XboxTeleopDevice,
 }
 
 
-def device_factory(config: dict) -> BaseTeleopDevice:
+def device_factory(config: dict, node=None) -> BaseTeleopDevice:
     """
     Create a teleoperation device instance based on configuration.
 
     Args:
         config: Device configuration dictionary with at minimum a 'type' key
-                Example: {
-                    "type": "leader_arm",
-                    "name": "so101_leader",
-                    "port": "/dev/ttyUSB0",
-                    ...
-                }
+        node: Optional ROS 2 node instance
 
     Returns:
         BaseTeleopDevice: Instantiated device object
-
-    Raises:
-        ValueError: If device type is unknown or not registered
-
-    Example:
-        >>> config = {"type": "leader_arm", "port": "/dev/ttyUSB0"}
-        >>> device = device_factory(config)
-        >>> device.connect()
     """
     if not config:
         raise ValueError("Device configuration cannot be empty")
@@ -57,7 +44,7 @@ def device_factory(config: dict) -> BaseTeleopDevice:
         )
 
     device_class = DEVICE_MAP[dev_type]
-    return device_class(config)
+    return device_class(config, node=node)
 
 
 def register_device(device_type: str, device_class: Type[BaseTeleopDevice]) -> None:

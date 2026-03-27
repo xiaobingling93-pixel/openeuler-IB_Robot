@@ -1,0 +1,29 @@
+# Xbox Controller Mapping Configuration for IB-Robot
+
+button_mapping:
+  arm_enable: 0      # A
+  arm_disable: 1     # B
+  home_position: 2   # X
+  preset_position: 3 # Y
+  mode_switch: 4     # LB (Long press > 0.5s)
+
+axis_mapping:
+  joint_mode:
+    "1": 0           # Left Stick X -> Joint 1
+    "2": 1           # Left Stick Y -> Joint 2
+    "3": 3           # Right Stick X -> Joint 3
+    "4": 4           # Right Stick Y -> Joint 4
+    "5": 6           # D-pad X -> Joint 5
+  cartesian_mode:
+    linear_x: 1      # Left Stick Y (Forward/Backward)
+    linear_y: 0      # Left Stick X (Left/Right)
+    linear_z: 4      # Right Stick Y (Up/Down)
+    angular_y: 6     # D-pad X (Pitch)
+    angular_z: 3     # Right Stick X (Yaw)
+  gripper:
+    open: 5          # RT
+    close: 2         # LT
+
+# Constants for controller indices (Standard Linux /joy mapping)
+# BUTTONS: A:0, B:1, X:2, Y:3, LB:4, RB:5, VIEW:6, MENU:7, LOGO:8, L_STICK:9, R_STICK:10
+# AXES: L_STICK_X:0, L_STICK_Y:1, LT:2, R_STICK_X:3, R_STICK_Y:4, RT:5, DPAD_X:6, DPAD_Y:7

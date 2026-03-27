@@ -73,7 +73,7 @@ class TeleopNode(Node):
         self._device_lock = threading.Lock()
 
         try:
-            self.device = device_factory(device_config)
+            self.device = device_factory(device_config, node=self)
             self.get_logger().info(f"Created device: {device_config.get('type', 'unknown')}")
 
             # Connect to device
@@ -160,15 +160,35 @@ class TeleopNode(Node):
         # Apply safety filter
         safe_targets = self.safety_filter.apply_limits(joint_targets)
 
-        # Publish arm commands
-        arm_positions = [safe_targets.get(name, 0.0) for name in self.arm_joint_names]
-        arm_msg = Float64MultiArray()
-        arm_msg.data = arm_positions
-        self.arm_cmd_pub.publish(arm_msg)
+        if not safe_targets:
+            return
 
-        # Publish gripper commands
-        if self.gripper_joint_names:
-            gripper_positions = [safe_targets.get(name, 0.0) for name in self.gripper_joint_names]
+        # 1. Publish Arm Commands (if all arm joints are present)
+        arm_positions = []
+        all_arm_present = True
+        for name in self.arm_joint_names:
+            if name in safe_targets:
+                arm_positions.append(safe_targets[name])
+            else:
+                all_arm_present = False
+                break
+
+        if all_arm_present and arm_positions:
+            arm_msg = Float64MultiArray()
+            arm_msg.data = arm_positions
+            self.arm_cmd_pub.publish(arm_msg)
+
+        # 2. Publish Gripper Commands (if all gripper joints are present)
+        gripper_positions = []
+        all_gripper_present = True
+        for name in self.gripper_joint_names:
+            if name in safe_targets:
+                gripper_positions.append(safe_targets[name])
+            else:
+                all_gripper_present = False
+                break
+        
+        if all_gripper_present and gripper_positions:
             gripper_msg = Float64MultiArray()
             gripper_msg.data = gripper_positions
             self.gripper_cmd_pub.publish(gripper_msg)
