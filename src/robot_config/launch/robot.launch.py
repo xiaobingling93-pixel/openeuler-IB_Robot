@@ -76,7 +76,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
     RegisterEventHandler,
-    TimerAction,
+    TimerAction
 )
 from launch.event_handlers import OnProcessExit
 
@@ -289,8 +289,9 @@ def launch_setup(context, *args, **kwargs):
     print(f"[robot_config] ========== Checking Teleop Mode ==========")
     try:
         # Check if teleop mode is enabled
-        if active_control_mode == 'teleop':
-            print(f"[robot_config] TELEOP MODE DETECTED")
+        _teleop_modes = ('teleop',)
+        if active_control_mode in _teleop_modes:
+            print(f"[robot_config] TELEOP MODE DETECTED ({active_control_mode})")
 
             # Check if teleoperation is configured
             teleop_config = robot_config.get('teleoperation', {})
@@ -298,7 +299,7 @@ def launch_setup(context, *args, **kwargs):
                 print(f"[robot_config] WARNING: Teleop mode requested but teleoperation config not found")
             else:
                 # Generate teleop nodes
-                teleop_nodes = generate_teleop_nodes(robot_config)
+                teleop_nodes = generate_teleop_nodes(robot_config, use_sim=use_sim)
                 actions.extend(teleop_nodes)
                 print(f"[robot_config] Added {len(teleop_nodes)} teleop nodes")
         else:
@@ -337,17 +338,31 @@ def launch_setup(context, *args, **kwargs):
         with_moveit_str = context.launch_configurations.get('with_moveit', '')
         moveit_display = parse_bool(context.launch_configurations.get('moveit_display', 'true'), default=True)
 
+        # Detect phone device — needs MoveIt Servo
+        teleop_config = robot_config.get('teleoperation', {})
+        active_device_name = teleop_config.get('active_device', '')
+        active_device_cfg = next(
+            (d for d in teleop_config.get('devices', []) if d.get('name') == active_device_name),
+            {}
+        )
+        phone_teleop_active = (
+            active_control_mode == 'teleop' and active_device_cfg.get('type') == 'phone'
+        )
+
         if with_moveit_str != '':
             with_moveit = parse_bool(with_moveit_str, default=False)
         else:
-            # Auto-detect: true if mode is 'moveit_planning' or contains 'moveit'
-            with_moveit = 'moveit' in active_control_mode.lower()
+            with_moveit = (
+                'moveit' in active_control_mode.lower()
+                or 'servo' in active_control_mode.lower()
+                or phone_teleop_active
+            )
         
         print(f"[robot_config] with_moveit={with_moveit}")
 
         if with_moveit:
             from robot_config.launch_builders.moveit import generate_moveit_nodes
-            moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display)
+            moveit_nodes = generate_moveit_nodes(robot_config, active_control_mode, use_sim, moveit_display, with_servo=phone_teleop_active)
             
             # Find the joint_state_broadcaster spawner to use as a trigger
             jsb_spawner = spawners_dict.get('joint_state_broadcaster')

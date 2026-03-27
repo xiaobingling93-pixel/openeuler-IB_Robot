@@ -1,4 +1,5 @@
 import os
+import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
@@ -14,6 +15,12 @@ def generate_launch_description():
 
     # create a runtime lauch argument
     is_sim_arg = DeclareLaunchArgument(name="is_sim", default_value="True")
+
+    with_servo_arg = DeclareLaunchArgument(
+        name="with_servo",
+        default_value="False",
+        description="Launch servo_node for real-time Cartesian teleoperation"
+    )
 
     # 2. 声明 "display" 启动参数，默认为 True
     display_arg = DeclareLaunchArgument(
@@ -49,6 +56,7 @@ def generate_launch_description():
     # get the argument value at runtime
     is_sim = LaunchConfiguration("is_sim")
     display = LaunchConfiguration("display")
+    with_servo = LaunchConfiguration("with_servo")
     arm_group_name = LaunchConfiguration("arm_group_name")
     base_link = LaunchConfiguration("base_link")
     ee_link = LaunchConfiguration("ee_link")
@@ -119,6 +127,30 @@ def generate_launch_description():
         ],
     )
 
+    # ── servo_node (optional, enabled by with_servo:=true) ─────────────────
+    # Humble moveit_servo expects params as {"moveit_servo": <flat_dict>}
+    servo_params_path = os.path.join(
+        get_package_share_directory('robot_teleop'), 'config', 'servo_params.yaml'
+    )
+    with open(servo_params_path, 'r') as f:
+        servo_yaml = yaml.safe_load(f)
+    servo_params = {'moveit_servo': servo_yaml}
+
+    servo_node = Node(
+        package='moveit_servo',
+        executable='servo_node_main',
+        name='servo_node',
+        output='screen',
+        parameters=[
+            servo_params,
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            {'use_sim_time': is_sim},
+        ],
+        condition=IfCondition(with_servo),
+    )
+
     return LaunchDescription([
         is_sim_arg,
         display_arg,
@@ -127,7 +159,9 @@ def generate_launch_description():
         base_link_arg,
         ee_link_arg,
         shoulder_link_arg,
+        with_servo_arg,
         move_group_node,
         rviz_node,
-        moveit_gateway_node
+        moveit_gateway_node,
+        servo_node,
     ])

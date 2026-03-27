@@ -12,8 +12,11 @@ from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
-def generate_moveit_nodes(robot_config, control_mode, use_sim=False, display=True):
+def generate_moveit_nodes(robot_config, control_mode, use_sim=False, display=True, with_servo=False):
     """Generate MoveIt 2 nodes.
+
+    In simulation mode, MoveIt nodes are delayed to ensure controllers
+    (which are themselves delayed for Gazebo init) are ready first.
 
     Args:
         robot_config: Robot configuration dict
@@ -25,13 +28,7 @@ def generate_moveit_nodes(robot_config, control_mode, use_sim=False, display=Tru
         List of launch actions for MoveIt 2
     """
     actions = []
-    
-    # Check if MoveIt is needed for this control mode
-    # Usually enabled for 'moveit_planning' or any mode with 'moveit' in name
-    with_moveit = 'moveit' in control_mode.lower()
-    
-    if not with_moveit:
-        return actions
+    is_sim = use_sim if isinstance(use_sim, bool) else str(use_sim).lower() == 'true'
 
     print(f"[robot_config] ========== Generating MoveIt Nodes ==========")
     print(f"[robot_config] Control mode: {control_mode}")
@@ -54,6 +51,9 @@ def generate_moveit_nodes(robot_config, control_mode, use_sim=False, display=Tru
             ee_link = robot_config['moveit']['ee_link']
             shoulder_link = robot_config['moveit']['shoulder_link']
 
+            # Servo mode: servo_node is launched alongside move_group
+            use_servo = with_servo or 'servo' in control_mode.lower()
+
             # Include MoveIt launch file
             moveit_launch = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(str(moveit_launch_file)),
@@ -65,6 +65,7 @@ def generate_moveit_nodes(robot_config, control_mode, use_sim=False, display=Tru
                     'base_link': base_link,
                     'ee_link': ee_link,
                     'shoulder_link': shoulder_link,
+                    'with_servo': 'True' if use_servo else 'False',
                 }.items()
             )
             actions.append(moveit_launch)

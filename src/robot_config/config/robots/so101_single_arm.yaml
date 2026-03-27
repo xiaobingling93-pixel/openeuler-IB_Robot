@@ -112,25 +112,6 @@ robot:
         type: action
         mode: moveit_planning
 
-  # Voice ASR is configured here and injected by robot_config/robot.launch.py.
-  # The standalone voice_asr_service launch file is kept only for debugging.
-  voice_asr:
-    enabled: true
-    active_mode: manual
-    language: zh
-    model_path: "src/voice_asr_service/model/sherpa-onnx-paraformer-zh-2023-09-14/model.int8.onnx"
-    tokens_path: ""
-    provider: cpu
-    model_type: auto
-    max_recording_duration: 10.0
-    vad_sensitivity: 0.5
-    publish_partial: true
-    sample_rate: 16000
-    chunk_size: 512
-    buffer_seconds: 5.0
-    output_topic: /voice_command
-    device_index: -1
-
   # ros2_control configuration
   ros2_control:
     hardware_plugin: so101_hardware/SO101SystemHardware
@@ -346,12 +327,29 @@ robot:
   # ============================================
   teleoperation:
     enabled: true
-    active_device: "so101_leader"
+    active_device: "phone_teleop"
     devices:
       - name: "so101_leader"
         type: "leader_arm"
         port: "/dev/ttyACM1"
         calib_file: "$(env HOME)/.calibrate/so101_leader_calibrate.json"
+      - name: "phone_teleop"
+        type: "phone"
+        control_frequency: 30.0
+        phone_config:
+          phone_os: "android" # android/ios
+          camera_offset: [0.0, -0.02, 0.04]
+          end_effector_step_sizes:
+            x: 0.5
+            y: 0.5
+            z: 0.5
+          end_effector_bounds:
+            min: [-0.5, -0.5, 0.0]
+            max: [0.5, 0.5, 0.5]
+          max_ee_step_m: 0.1
+          gripper_speed_factor: 20.0
+          gripper_range: [0.0, 1.0]
+        ee_frame_name: "gripper"
     safety:
       joint_limits:
         "1": {"min": -2.0693, "max": 2.0709}
@@ -359,7 +357,7 @@ robot:
         "3": {"min": -1.6813, "max": 1.6828}
         "4": {"min": -1.65806, "max": 1.65806}
         "5": {"min": -2.9115, "max": 2.9115}
-        "6": {"min": 0.0, "max": 1.0}  # Gripper
+        "6": {"min": 0.0, "max": 1.0}
 
   # ============================================
   # Recording Configuration

@@ -8,6 +8,7 @@ configuration, enabling easy extension without modifying core code.
 from typing import Dict, Type
 from .base_teleop import BaseTeleopDevice
 from .devices.leader_arm import LeaderArmDevice
+from .phone.phone_device import PhoneDevice
 
 
 # Device registry - add new device types here
@@ -15,10 +16,11 @@ DEVICE_MAP: Dict[str, Type[BaseTeleopDevice]] = {
     "leader_arm": LeaderArmDevice,  # SO-101 leader arm
     # "xbox_controller": XboxDevice,   # Future implementation
     # "vr_device": VRDevice,            # Future implementation
+    "phone": PhoneDevice,
 }
 
 
-def device_factory(config: dict) -> BaseTeleopDevice:
+def device_factory(config: dict, node=None) -> BaseTeleopDevice:
     """
     Create a teleoperation device instance based on configuration.
 
@@ -57,7 +59,7 @@ def device_factory(config: dict) -> BaseTeleopDevice:
         )
 
     device_class = DEVICE_MAP[dev_type]
-    return device_class(config)
+    return device_class(config, node=node)
 
 
 def register_device(device_type: str, device_class: Type[BaseTeleopDevice]) -> None:
