@@ -118,6 +118,28 @@ output_dataset/
 
 通常不需要直接运行，由 `robot.launch.py` 根据 `record_mode:=episodic` 参数自动加载。
 
+### 4. camera_alignment - 基于 ArUco 的相机对齐工具
+
+用于在数据采集或复现前，直接读取本机视频设备并对齐摄像头视角。
+
+**基本用法**：
+```bash
+ros2 run dataset_tools camera_alignment \
+    --cameras_index_or_path /dev/video0 \
+    --reference-path /tmp/camera_reference_multi.json \
+    --reference-image-path /tmp/reference_img.png
+```
+
+工具支持：
+
+- 保存当前 ArUco 角点作为参考基准
+- 实时显示与参考画面的平均像素误差
+- 进入“虚影对齐”界面辅助恢复视角
+
+详细说明见：
+
+- `docs/tools/camera_alignment.md`
+
 ## 数据流
 
 ```
