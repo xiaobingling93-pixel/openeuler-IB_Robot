@@ -14,7 +14,7 @@ description: "Table-top scene with banana and plate for pick-and-place task"
 # gazebo_adapter reads this and overrides initial_pose_z when the scene is loaded.
 robot_spawn:
   x: 0.0
-  y: 0.0
+  y: 0.30
   z: -0.03
 
 objects:
@@ -22,8 +22,8 @@ objects:
     type: static_mesh
     gazebo_mesh: bluetable.obj
     mujoco_mesh: bluetable.obj
-    mesh_scale: 0.1
-    position: [0.0, 0.0, -0.206]
+    mesh_scale: 0.156
+    position: [0.0, 0.0, -0.321]
     rotation_euler_rad: [1.5708, 0.0, 0.0]
     description: "Blue table providing the work surface (visual only)"
 
@@ -32,8 +32,8 @@ objects:
     gazebo_mesh: greencurten.obj
     mujoco_mesh: greencurten_mj.obj
     mesh_scale: 0.15
-    position: [0.0, -0.4, 0.0]
-    rotation_euler_rad: [1.5708, 0.0, 0.0]
+    position: [0.0, -0.345, 0.0]
+    rotation_euler_rad: [1.5708, 0.0, 3.14159]
     description: "Green curtain background (visual only)"
 
   - name: plate
@@ -51,7 +51,7 @@ objects:
     gazebo_mesh: banana.obj
     mujoco_mesh: banana_mj.obj
     mesh_scale: 0.012
-    position: [0.22, 0.02, 0.075]
+    position: [0.0, 0.02, 0.075]
     rotation_euler_rad: [1.5708, 0.0, 0.0]
     mass_kg: 0.1
     description: "Yellow banana — object to be grasped"
