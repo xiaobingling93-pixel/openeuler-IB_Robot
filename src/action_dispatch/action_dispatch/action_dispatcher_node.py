@@ -58,6 +58,7 @@ class ActionDispatcherNode(Node):
         self.declare_parameter('inference_action_server', '/act_inference_node/DispatchInfer')
         self.declare_parameter('robot_config_path', '')
         self.declare_parameter('joint_state_topic', '/joint_states')
+        self.declare_parameter('lerobot_norm_mode', 'range_m100_100')
         
         # Temporal smoothing parameters
         self.declare_parameter('temporal_smoothing_enabled', False)
@@ -119,12 +120,14 @@ class ActionDispatcherNode(Node):
                 calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
                 joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
                 gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
+                norm_mode = self.get_parameter('lerobot_norm_mode').value
                 if calib_file and joint_names:
                     self._joint_rad_limits = build_joint_conversion_table(
                         calib_file, joint_names, gripper_joints,
+                        norm_mode=norm_mode,
                     )
                     self.get_logger().info(
-                        f"Loaded joint conversion table from {calib_file}: "
+                        f"Loaded joint conversion table (mode={norm_mode}): "
                         f"{len(self._joint_rad_limits)} joints"
                     )
                     for i, (rmin, rmax, span, off) in enumerate(self._joint_rad_limits):

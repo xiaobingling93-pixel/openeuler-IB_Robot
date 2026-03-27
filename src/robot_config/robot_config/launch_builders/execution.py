@@ -265,6 +265,7 @@ def generate_action_dispatcher_node(robot_config, control_mode, use_sim=False):
     print(f"[robot_config] Use sim time: {is_sim}")
 
     inference_config = mode_config.get("inference", {})
+    ros2_control_config = robot_config.get("ros2_control", {})
 
     action_server = "/act_inference_node/DispatchInfer"
 
@@ -296,6 +297,7 @@ def generate_action_dispatcher_node(robot_config, control_mode, use_sim=False):
                 "joint_state_topic": "/joint_states",
                 "dispatch_action_topic": "/action_dispatch/dispatch_action",
                 "robot_config_path": str(robot_config_path),
+                "lerobot_norm_mode": ros2_control_config.get("lerobot_norm_mode", "range_m100_100"),
                 "inference_action_server": action_server,
                 "inference_prompt": "",
                 "use_sim_time": is_sim,

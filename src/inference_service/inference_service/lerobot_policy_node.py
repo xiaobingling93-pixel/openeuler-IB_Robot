@@ -218,12 +218,14 @@ class LeRobotPolicyNode(Node):
         calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
         joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
         gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
+        norm_mode = robot_cfg.ros2_control.params.get("lerobot_norm_mode", "range_m100_100")
         if calib_file and joint_names:
             self._joint_rad_limits = build_joint_conversion_table(
                 calib_file, joint_names, gripper_joints,
+                norm_mode=norm_mode,
             )
             self.get_logger().info(
-                f"Loaded joint conversion table from calibration: "
+                f"Loaded joint conversion table (mode={norm_mode}): "
                 f"{len(self._joint_rad_limits)} joints"
             )
         else:
