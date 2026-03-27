@@ -29,6 +29,9 @@
   <!-- Gazebo simulation -->
   <exec_depend>gazebo_ros2_control</exec_depend>
 
+  <!-- MuJoCo simulation -->
+  <exec_depend>mujoco_ros2_control</exec_depend>
+
   <!-- TF -->
   <exec_depend>tf2_ros</exec_depend>
 

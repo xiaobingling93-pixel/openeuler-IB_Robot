@@ -157,6 +157,10 @@ class TeleopNode(Node):
                 self.get_logger().error(f"Device read failed: {e}")
                 return
 
+            # If read returned empty (communication error), skip this cycle
+            if not joint_targets:
+                return
+
         # Apply safety filter
         safe_targets = self.safety_filter.apply_limits(joint_targets)
 

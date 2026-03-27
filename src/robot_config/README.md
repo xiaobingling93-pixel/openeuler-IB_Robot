@@ -514,6 +514,19 @@ camera_info_url: file:///home/user/.ros/camera_info/top.yaml
 ./scripts/cleanup_ros.sh
 ```
 
+## 仿真依赖（MuJoCo）
+
+`use_sim:=true` 模式依赖 `ros-humble-mujoco-ros2-control`，通过 rosdep 声明为运行时依赖：
+
+```bash
+# 安装所有依赖（含 MuJoCo 仿真包）
+rosdep install --from-paths src --ignore-src -y
+```
+
+该命令会自动安装 `ros-humble-mujoco-ros2-control` 及其传递依赖
+（`mujoco_ros2_control_msgs`、`mujoco_ros2_control_plugins`、`mujoco_vendor`）。
+不再需要手动初始化 git submodule。
+
 ## 参考资料
 
 - [usb_cam GitHub](https://github.com/ros-drivers/usb_cam) - ROS2 USB 相机驱动

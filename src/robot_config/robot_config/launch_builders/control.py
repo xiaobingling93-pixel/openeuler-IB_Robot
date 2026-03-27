@@ -35,7 +35,7 @@ def generate_controller_spawners(controller_names, use_sim=True, controller_mana
     is_sim = parse_bool(use_sim, default=True)
 
     nodes = []
-    timeout = 30 if is_sim else 10
+    timeout = 60 if is_sim else 10
 
     for controller_name in controller_names:
         nodes.append(Node(
