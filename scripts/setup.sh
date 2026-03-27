@@ -276,8 +276,8 @@ check_openeuler() {
             log_info "openEuler repo already configured, skipping add-repo."
         fi
 
-        log_info "Installing gcc-c++, vim-enhanced, and ffmpeg-devel..."
-        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced ffmpeg-devel
+        log_info "Installing gcc-c++, vim-enhanced, ffmpeg-devel, libvpx, and libvpx-devel..."
+        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced ffmpeg-devel libvpx libvpx-devel
 
         # On openEuler (and many RedHat/Fedora-based systems), FFmpeg headers
         # are installed under /usr/include/ffmpeg/ instead of /usr/include/.
