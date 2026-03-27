@@ -33,7 +33,24 @@
     eulerseq="XYZ"
     angle="radian" />
 
-  <option gravity="0 0 -9.81" integrator="implicitfast">
+  <!--
+    Physics solver settings — tuned for stable contact-rich grasping.
+
+    timestep="0.001": 1 ms step (was implicit 2 ms).
+      Keeps solref timeconst / timestep ≥ 10× (0.010/0.001), safely above the
+      ≥4× stability floor.  Controller still runs at 50 Hz (every 20 physics steps).
+
+    noslip_iterations="5": five Newton-smoothing passes on no-slip constraints.
+      Prevents micro-slip between gripper faces and grasped objects from
+      accumulating into macroscopic sliding / ejection.
+
+    cone="elliptic": exact elliptic friction cone for condim=4 contacts.
+      The default pyramidal cone over-approximates friction in the diagonal
+      direction, causing numerical chatter in the torsional friction channel
+      (condim=4 adds one torsional DOF).  Elliptic cone eliminates this.
+  -->
+  <option gravity="0 0 -9.81" integrator="implicitfast"
+          timestep="0.001" noslip_iterations="5" cone="elliptic">
     <flag contact="enable" />
   </option>
 
@@ -214,8 +231,38 @@
                   mass="0.087"
                   fullinertia="2.75087e-05 4.33657e-05 3.45059e-05 -3.35241e-07 -5.7352e-06 -5.17847e-08" />
 
+                <!--
+                  Gripper body collision proxies (three geoms):
+
+                  1. Motor housing box — STS3215 servo chassis.
+                     Covers X[-0.020,+0.020] Y[-0.020,+0.020] Z[-0.065,+0.015].
+
+                  2. Fixed jaw finger — wrist_roll_follower finger region.
+                     STL analysis (Rx180 + offset → gripper frame):
+                       Z[-0.085,-0.065]: X[-0.027,-0.010]
+                       Z[-0.105,-0.085]: X[-0.020,-0.008]
+                     Finger tip at Z≈-0.105 (old single box only reached Z=-0.065).
+                     Box: X[-0.036,-0.008] Y[-0.011,+0.011] Z[-0.106,-0.020]
+
+                  3. Palm back-plate — the large wrist_roll_follower body plate.
+                     STL analysis: 54,418 vertices at Y[+0.020,+0.101] Z[-0.065,+0.015]
+                     with NO prior collision coverage (穿模 primary cause).
+                     Without this geom the banana has no physics boundary to stop it
+                     from visually entering the gripper palm during arm approach or
+                     wrist-roll orientations that face the palm toward the object.
+                     Box: X[-0.024,+0.028] Y[+0.021,+0.101] Z[-0.065,+0.015]
+                       center: (0.002, 0.061, -0.025)  half-size: (0.026, 0.040, 0.040)
+                -->
                 <geom class="collision" type="box" size="0.02 0.02 0.04"
-                      pos="0 0 -0.025" />
+                      pos="0 0 -0.025"
+                      friction="2.0 0.5 0.05" condim="4"
+                      solimp="0.9 0.95 0.002 0.5 2" solref="0.010 1"/>
+                <geom class="collision" type="box" size="0.014 0.011 0.043"
+                      pos="-0.022 0 -0.063"
+                      friction="2.0 0.5 0.05" condim="4"
+                      solimp="0.9 0.95 0.002 0.5 2" solref="0.010 1"/>
+                <geom class="collision" type="box" size="0.026 0.040 0.040"
+                      pos="0.002 0.061 -0.025"/>
 
                 <geom class="visual" type="mesh" mesh="sts3215"     rgba="0.1 0.1 0.1 1"
                       pos="0.0077 0.0001 -0.0234" euler="-1.5708 0 0" />
@@ -240,8 +287,20 @@
                     mass="0.012"
                     fullinertia="6.61427e-06 1.89032e-06 5.28738e-06 -3.19807e-07 -5.90717e-09 -1.09945e-07" />
 
-                  <geom class="collision" type="box" size="0.015 0.03 0.02"
-                        pos="0 -0.03 0.019" />
+                  <!--
+                    Moving jaw finger — full-coverage collision box.
+                    STL analysis: jaw_local Y[-0.082,+0.010] Z[-0.024,+0.024]
+                    Old box (size 0.015 0.030 0.020 at pos 0 -0.030 0.019) only reached
+                    jaw_local Y=-0.060 → gripper Z=-0.083; tip at Y=-0.082 → Z=-0.105
+                    was completely uncovered (2.2 cm gap).
+                    New box: jaw_local Y[-0.082,+0.010] fully covered.
+                      center: (0, -0.036, 0.019)  half-size: (0.012, 0.046, 0.021)
+                    In gripper frame: X[0.008,0.032] Y[-0.021,+0.021] Z[-0.105,-0.013] ✓
+                  -->
+                  <geom class="collision" type="box" size="0.012 0.046 0.021"
+                        pos="0 -0.036 0.019"
+                        friction="2.0 0.5 0.05" condim="4"
+                        solimp="0.9 0.95 0.002 0.5 2" solref="0.010 1"/>
 
                   <geom class="visual" type="mesh" mesh="moving_jaw"
                         pos="0 0 0.0189" euler="0 0 0" />
