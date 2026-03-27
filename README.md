@@ -105,11 +105,12 @@ IB_Robot/                           # 主工作空间 (本仓库)
 
 运行 `./scripts/setup.sh`。该脚本会自动完成以下重型操作：
 
-1. **子模块同步**: 执行 `git submodule update --init --recursive`，下载核心源码。
-2. **系统依赖安装**: 通过系统包管理器安装 C++ 编译工具、`nlohmann-json` 等硬件驱动依赖。
-3. **虚拟环境 (venv) 构建**: 在根目录创建 `venv` 文件夹。这能确保 ML 相关依赖（如 PyTorch）与系统 ROS 2 环境隔离，防止破坏系统工具。
-4. **ML 栈安装**: 自动在 `venv` 中安装 `torch`、`lerobot` 以及适配 ROS 2 Humble 的特定版本 `numpy (< 2.0)`。
-5. **环境脚本注入**: 自动生成或更新 `.shrc_local`，用于一键加载开发环境。
+1.  **子模块同步**: 执行 `git submodule update --init --recursive`，下载核心源码。
+2.  **ROS 2 安装** (如未安装): 自动检测并安装 ROS 2 Humble 和 colcon 构建工具。
+3.  **系统依赖安装**: 通过系统包管理器安装 C++ 编译工具、`nlohmann-json` 等硬件驱动依赖。
+4.  **虚拟环境 (venv) 构建**: 在根目录创建 `venv` 文件夹。这能确保 ML 相关依赖（如 PyTorch）与系统 ROS 2 环境隔离，防止破坏系统工具。
+5.  **ML 栈安装**: 自动在 `venv` 中安装 `torch`、`lerobot` 以及适配 ROS 2 Humble 的特定版本 `numpy (< 2.0)`。
+5.  **环境脚本注入**: 自动生成或更新 `.shrc_local`，用于一键加载开发环境。
 
 ### 2. 开发者 Fork 设置 (可选)
 

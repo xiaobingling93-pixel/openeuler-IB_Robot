@@ -108,7 +108,8 @@ class ActionDispatcherNode(Node):
         if robot_config_path:
             try:
                 from robot_config.loader import load_robot_config
-                self._contract = load_robot_config(robot_config_path).to_contract()
+                robot_cfg = load_robot_config(robot_config_path)
+                self._contract = robot_cfg.to_contract()
                 self._action_specs = [s for s in iter_specs(self._contract) if s.is_action]
                 self.get_logger().info(f"Loaded {len(self._action_specs)} action specs from robot_config")
             except Exception as e:
@@ -161,7 +162,7 @@ class ActionDispatcherNode(Node):
     def _joint_cb(self, msg):
         """Optional: could use current state for safety or initialization."""
         pass
-    
+
     def _get_plan_length(self) -> int:
         """Get current plan length (works for both modes)."""
         if self._smoother is not None:
@@ -177,7 +178,7 @@ class ActionDispatcherNode(Node):
         self._smoothing_enabled_pub.publish(Bool(data=self._smoothing_enabled))
 
         # A. Trigger Inference if queue is low
-        if q_size < self._watermark and not self._inference_in_progress:
+        if q_size <= self._watermark and not self._inference_in_progress:
             self._request_inference()
 
         # B. Get Action
@@ -198,7 +199,11 @@ class ActionDispatcherNode(Node):
         
         # C. Execute
         if action is not None:
-            self._executor.execute(action)
+            if isinstance(action, torch.Tensor):
+                action_np = action.detach().cpu().numpy()
+            else:
+                action_np = np.array(action)
+            self._executor.execute(action_np)
 
     def _request_inference(self):
         """Send async goal to inference service."""

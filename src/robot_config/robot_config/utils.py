@@ -220,3 +220,125 @@ def prepare_lerobot_env():
         env["PYTHONPATH"] = f"{lerobot_src}:{current_pp}" if current_pp else lerobot_src
 
     return env
+
+
+# ---------------------------------------------------------------------------
+# Joint unit-conversion helpers  (LeRobot percentage  ↔  ros2_control radians)
+# ---------------------------------------------------------------------------
+import json
+import math
+from typing import List, Optional, Tuple
+
+# Each entry: (rad_min, rad_max, pct_span, pct_offset)
+JointConversionEntry = Tuple[float, float, float, float]
+
+_TICKS_PER_RAD = 4096.0 / (2.0 * math.pi)
+
+
+# Supported LeRobot motor normalization modes.
+# Keep in sync with the YAML ``lerobot_norm_mode`` option.
+NORM_MODE_RANGE = "range_m100_100"   # arm [-100,+100], gripper [0,100]
+NORM_MODE_DEGREES = "degrees"         # centred degrees
+NORM_MODE_NONE = "none"               # pass-through (no conversion)
+
+_MODEL_RESOLUTION = 4096              # Feetech STS3215 12-bit encoder
+
+
+def build_joint_conversion_table(
+    calib_file: str,
+    joint_names: List[str],
+    gripper_joints: Optional[List[str]] = None,
+    norm_mode: str = NORM_MODE_RANGE,
+) -> List[JointConversionEntry]:
+    """Build per-joint ``(rad_min, rad_max, lerobot_span, lerobot_offset)``.
+
+    The C++ hardware layer converts  ticks ↔ radians  using a fixed formula::
+
+        rad  = (ticks - 2048) / (4096 / 2π)
+        ticks = rad * (4096 / 2π) + 2048
+
+    LeRobot normalises ticks differently depending on *norm_mode*:
+
+    **range_m100_100** (default)
+        * Arm joints  ``RANGE_M100_100``:  ``pct = (t-tmin)/(tmax-tmin)*200 - 100``
+        * Gripper      ``RANGE_0_100``:     ``pct = (t-tmin)/(tmax-tmin)*100``
+
+    **degrees**
+        * All joints: ``deg = (t - mid) * 360 / 4095``  where ``mid=(tmin+tmax)/2``
+
+    **none**
+        No conversion – returns an empty table so the caller does a pass-through.
+
+    Parameters
+    ----------
+    calib_file : str
+        Path to the calibration JSON produced by ``calibrate_arm``.
+    joint_names : list[str]
+        Ordered joint identifiers (e.g. ``["1","2",…,"6"]``).
+    gripper_joints : list[str] | None
+        Only used in ``range_m100_100`` mode to select RANGE_0_100 for these
+        joints.  Ignored in ``degrees`` mode.
+    norm_mode : str
+        One of ``"range_m100_100"``, ``"degrees"``, ``"none"``.
+
+    Returns
+    -------
+    list[JointConversionEntry]
+        One ``(rad_min, rad_max, span, offset)`` per joint.  The linear
+        mapping is::
+
+            lerobot_val  = (rad - rad_min) / (rad_max - rad_min) * span + offset
+            rad          = (lerobot_val - offset) / span * (rad_max - rad_min) + rad_min
+
+        For *degrees* mode ``rad_min / rad_max`` are the rad equivalents of the
+        degree endpoints, and ``span / offset`` encode the degree range so that
+        the same linear formula works.
+    """
+    if norm_mode == NORM_MODE_NONE:
+        return []
+
+    if gripper_joints is None:
+        gripper_joints = []
+
+    with open(calib_file, "r") as fh:
+        calib = json.load(fh)
+
+    table: List[JointConversionEntry] = []
+    for jname in joint_names:
+        entry = calib[jname]
+        tick_min = entry["range_min"]
+        tick_max = entry["range_max"]
+
+        if norm_mode == NORM_MODE_DEGREES:
+            # LeRobot DEGREES: deg = (tick - mid) * 360 / (resolution - 1)
+            # Compute the degree values at tick_min and tick_max, then
+            # derive (rad_min, rad_max, span, offset) so the generic
+            # linear formula gives us the correct degree output.
+            mid = (tick_min + tick_max) / 2.0
+            max_res = _MODEL_RESOLUTION - 1  # 4095
+            deg_at_tick_min = (tick_min - mid) * 360.0 / max_res
+            deg_at_tick_max = (tick_max - mid) * 360.0 / max_res
+
+            rad_min = (tick_min - 2048.0) / _TICKS_PER_RAD
+            rad_max = (tick_max - 2048.0) / _TICKS_PER_RAD
+
+            # We want:  deg = (rad - rad_min) / (rad_max - rad_min) * span + offset
+            # At rad_min → deg_at_tick_min,  at rad_max → deg_at_tick_max
+            # => offset = deg_at_tick_min,  span = deg_at_tick_max - deg_at_tick_min
+            span = deg_at_tick_max - deg_at_tick_min
+            offset = deg_at_tick_min
+        else:
+            # RANGE_M100_100 / RANGE_0_100
+            rad_min = (tick_min - 2048.0) / _TICKS_PER_RAD
+            rad_max = (tick_max - 2048.0) / _TICKS_PER_RAD
+
+            if jname in gripper_joints:
+                span = 100.0
+                offset = 0.0
+            else:
+                span = 200.0
+                offset = -100.0
+
+        table.append((rad_min, rad_max, span, offset))
+
+    return table

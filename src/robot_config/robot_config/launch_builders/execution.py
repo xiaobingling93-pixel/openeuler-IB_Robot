@@ -103,6 +103,7 @@ def generate_monolithic_inference_node(robot_config, control_mode, use_sim=False
     node_params = {
         "checkpoint": model_config["path"],
         "robot_config_path": str(robot_config_path),
+        "lerobot_norm_mode": model_config.get("lerobot_norm_mode", "range_m100_100"),
         "passive_mode": True,
         "device": "auto",
         "use_sim_time": is_sim,
@@ -178,6 +179,7 @@ def generate_distributed_inference_nodes(robot_config, control_mode, use_sim=Fal
     edge_node_params = {
         "checkpoint": policy_path,
         "robot_config_path": str(robot_config_path),
+        "lerobot_norm_mode": model_config.get("lerobot_norm_mode", "range_m100_100"),
         "passive_mode": True,
         "device": "auto",
         "use_sim_time": is_sim,
