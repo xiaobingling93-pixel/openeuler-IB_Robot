@@ -67,6 +67,8 @@ ament_python_install_package(${PROJECT_NAME})
 
 # Install Python scripts without .py suffix for ROS 2 standards
 install(PROGRAMS scripts/calibrate_arm.py DESTINATION lib/${PROJECT_NAME} RENAME calibrate_arm)
+install(PROGRAMS scripts/arm_calibration_transfer.py DESTINATION lib/${PROJECT_NAME} RENAME arm_calibration_transfer)
+install(PROGRAMS scripts/arm_calibration_checker.py DESTINATION lib/${PROJECT_NAME} RENAME arm_calibration_checker)
 install(PROGRAMS scripts/leader_arm_pub.py DESTINATION lib/${PROJECT_NAME} RENAME leader_arm_pub)
 install(PROGRAMS scripts/motor_test.py DESTINATION lib/${PROJECT_NAME} RENAME motor_test)
 install(PROGRAMS scripts/motor_bridge.py DESTINATION lib/${PROJECT_NAME} RENAME motor_bridge)
@@ -86,6 +88,7 @@ install(DIRECTORY config
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
 
   # C++ tests only
   ament_add_gtest(test_so101_hardware test/test_so101_hardware.cpp)
@@ -93,6 +96,10 @@ if(BUILD_TESTING)
     target_link_libraries(test_so101_hardware so101_hardware_interface)
     ament_target_dependencies(test_so101_hardware rclcpp hardware_interface)
   endif()
+
+  ament_add_pytest_test(test_calibration_py test/test_calibration.py)
+  ament_add_pytest_test(test_transfer_py test/test_transfer.py)
+  ament_add_pytest_test(test_checker_py test/test_checker.py)
 
   ament_lint_auto_find_test_dependencies()
 endif()

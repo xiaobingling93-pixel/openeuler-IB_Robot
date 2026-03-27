@@ -7,8 +7,16 @@ import pathlib
 import sys
 from lerobot.motors import MotorCalibration
 from lerobot.motors.feetech.feetech import OperatingMode
-from so101_hardware.calibration.constants import FOLLOWER_CALIB_FILE
 
+JOINT_ALIASES = {
+    "1": "shoulder_pan",
+    "2": "shoulder_lift",
+    "3": "elbow_flex",
+    "4": "wrist_flex",
+    "5": "wrist_roll",
+    "6": "gripper",
+}
+JOINT_ALIASES.update({value: key for key, value in JOINT_ALIASES.items()})
 
 def run_interactive_calibration(bus, joint_names: list[str], logger=None) -> dict[str, MotorCalibration] | None:
     """Run interactive calibration to capture homing offsets and ranges.
@@ -63,8 +71,10 @@ def run_interactive_calibration(bus, joint_names: list[str], logger=None) -> dic
                 range_max=range_maxes[motor_name],
             )
 
-        log(f"Calibration complete: mins={{{', '.join(f'{k}: {v.range_min}' for k, v in calibration_data.items())}}}")
-        log(f"Calibration complete: maxes={{{', '.join(f'{k}: {v.range_max}' for k, v in calibration_data.items())}}}")
+        mins_text = ", ".join(f"{key}: {value.range_min}" for key, value in calibration_data.items())
+        maxes_text = ", ".join(f"{key}: {value.range_max}" for key, value in calibration_data.items())
+        log(f"Calibration complete: mins={{{mins_text}}}")
+        log(f"Calibration complete: maxes={{{maxes_text}}}")
 
         return calibration_data
 
@@ -106,7 +116,6 @@ def save_calibration(data: dict[str, MotorCalibration], path: pathlib.Path, logg
         log_error(f"Failed to save calibration: {e}")
         raise
 
-
 def load_calibration(path: pathlib.Path, joint_names: list[str], logger=None) -> dict[str, MotorCalibration]:
     """Load calibration data from JSON file.
 
@@ -131,9 +140,18 @@ def load_calibration(path: pathlib.Path, joint_names: list[str], logger=None) ->
         loaded_data = json.load(f)
 
     calibration_data = {}
-    for name, data_dict in loaded_data.items():
-        if name in joint_names:
-            calibration_data[name] = MotorCalibration(**data_dict)
+    for joint_name in joint_names:
+        candidate_names = [joint_name]
+        alias = JOINT_ALIASES.get(joint_name)
+        if alias:
+            candidate_names.append(alias)
+
+        for candidate_name in candidate_names:
+            data_dict = loaded_data.get(candidate_name)
+            if data_dict is None:
+                continue
+            calibration_data[joint_name] = MotorCalibration(**data_dict)
+            break
 
     if not all(j in calibration_data for j in joint_names):
         raise ValueError("Calibration file is invalid or incomplete")

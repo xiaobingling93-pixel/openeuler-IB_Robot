@@ -54,6 +54,11 @@ colcon build --packages-select so101_hardware
 source install/setup.zsh
 ```
 
+## 工具文档
+
+- [arm_calibration_transfer](docs/tools/arm_calibration_transfer.md)：旧版标定数据迁移与生成新 follower 标定文件
+- [arm_calibration_checker](docs/tools/arm_calibration_checker.md)：机械臂标定结果的真机检查流程
+
 ## 使用方法
 
 ### 1. 校准机械臂 (Python)
