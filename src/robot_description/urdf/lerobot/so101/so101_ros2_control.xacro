@@ -5,11 +5,18 @@
     <xacro:arg name="port" default="/dev/ttyACM0"/>
     <xacro:arg name="calib_file" default=""/>
     <xacro:arg name="reset_positions" default=""/>
+    <!-- sim_plugin: hardware plugin for simulation. Default = Gazebo.
+         MuJoCo: description.py passes "mujoco_ros2_control/MujocoSystemInterface" when platform=mujoco. -->
+    <xacro:arg name="sim_plugin" default="gz_ros2_control/GazeboSimSystem"/>
+    <xacro:arg name="mujoco_model" default=""/>
 
     <ros2_control name="RobotSystem" type="system">
         <xacro:if value="$(arg use_sim)">
             <hardware>
-                <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+                <plugin>$(arg sim_plugin)</plugin>
+                <xacro:if value="${'$(arg mujoco_model)' != ''}">
+                    <param name="mujoco_model">$(arg mujoco_model)</param>
+                </xacro:if>
             </hardware>
         </xacro:if>
 
@@ -26,6 +33,7 @@
             <command_interface name="position">
                 <param name="min">-2.0693</param>
                 <param name="max">2.0709</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">1</param>
@@ -35,6 +43,7 @@
             <command_interface name="position">
                 <param name="min">-1.92</param>
                 <param name="max">1.92</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">2</param>
@@ -44,6 +53,7 @@
             <command_interface name="position">
                 <param name="min">-1.6813</param>
                 <param name="max">1.6828</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">3</param>
@@ -53,6 +63,7 @@
             <command_interface name="position">
                 <param name="min">-1.65806</param>
                 <param name="max">1.65806</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">4</param>
@@ -61,6 +72,7 @@
             <command_interface name="position">
                 <param name="min">-2.9115</param>
                 <param name="max">2.9115</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">5</param>
@@ -70,6 +82,7 @@
             <command_interface name="position">
                 <param name="min">0.0</param>
                 <param name="max">1.0</param>
+                <param name="initial_value">0.0</param>
             </command_interface>
             <state_interface name="position" />
             <param name="id">6</param>

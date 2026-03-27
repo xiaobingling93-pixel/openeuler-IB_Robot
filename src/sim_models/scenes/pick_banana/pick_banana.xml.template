@@ -49,7 +49,7 @@
 
     <body name="plate" pos="0.220000 0.020000 0.020000" euler="1.570796 0.000000 0.000000"
           gravcomp="0">
-      <joint type="free" damping="5.0"/>
+      <joint name="plate_free" type="free" damping="5.0"/>
       <geom type="mesh" mesh="plate_mesh" rgba="0.9200 0.9000 0.8500 1.0000"
             contype="0" conaffinity="0"
             friction="1.0 0.01 0.001" condim="4" mass="0"
@@ -63,7 +63,7 @@
 
     <body name="banana" pos="0.220000 0.020000 0.075000" euler="1.570796 0.000000 0.000000"
           gravcomp="0">
-      <freejoint/>
+      <freejoint name="banana_free"/>
       <geom type="mesh" mesh="banana_mesh" rgba="0.9600 0.8500 0.1000 1.0000"
             contype="1" conaffinity="1"
             friction="3.0 0.5 0.05" condim="4" mass="0.1"
