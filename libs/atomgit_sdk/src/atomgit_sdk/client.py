@@ -266,3 +266,73 @@ class AtomGitClient:
     def get_pr_url(self, pr_number: int) -> str:
         """Get PR URL"""
         return f"https://atomgit.com/{self.config.owner}/{self.config.repo}/pull/{pr_number}"
+
+    def get_issues(self, state: str = "open") -> List[dict]:
+        """Get list of issues"""
+        return self.request(
+            "GET",
+            f"/api/v5/repos/{self.config.owner}/{self.config.repo}/issues?state={state}&per_page=100",
+        )
+
+    def get_issue(self, issue_number: int) -> dict:
+        """Get issue details"""
+        return self.request(
+            "GET",
+            f"/api/v5/repos/{self.config.owner}/{self.config.repo}/issues/{issue_number}",
+        )
+
+    def create_issue(
+        self,
+        title: str,
+        body: str = "",
+        labels: Optional[List[str]] = None,
+        assignees: Optional[List[str]] = None,
+    ) -> dict:
+        """Create issue"""
+        payload = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = ",".join(labels) if isinstance(labels, list) else labels
+        if assignees:
+            payload["assignees"] = (
+                ",".join(assignees) if isinstance(assignees, list) else assignees
+            )
+
+        return self.request(
+            "POST",
+            f"/api/v5/repos/{self.config.owner}/{self.config.repo}/issues",
+            body=payload,
+        )
+
+    def update_issue(
+        self,
+        issue_number: int,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+        state: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        assignees: Optional[List[str]] = None,
+    ) -> dict:
+        """Update issue"""
+        payload = {}
+        if title is not None:
+            payload["title"] = title
+        if body is not None:
+            payload["body"] = body
+        if state is not None:
+            payload["state"] = state
+        if labels is not None:
+            payload["labels"] = ",".join(labels) if isinstance(labels, list) else labels
+        if assignees is not None:
+            payload["assignees"] = (
+                ",".join(assignees) if isinstance(assignees, list) else assignees
+            )
+
+        return self.request(
+            "PATCH",
+            f"/api/v5/repos/{self.config.owner}/{self.config.repo}/issues/{issue_number}",
+            body=payload,
+        )
+
+    def get_issue_url(self, issue_number: int) -> str:
+        """Get issue URL"""
+        return f"https://atomgit.com/{self.config.owner}/{self.config.repo}/issues/{issue_number}"

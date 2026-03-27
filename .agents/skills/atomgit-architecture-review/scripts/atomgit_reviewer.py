@@ -90,23 +90,44 @@ class ArchitectureReviewer:
     def submit_review(self, pr_number: int, issues: List[ArchitectureIssue]) -> None:
         """提交审查结果"""
         if not issues:
-            # 提交通过评论
             summary = self.formatter.format_summary(issues)
             self.client.submit_pr_comment(pr_number, summary)
             print(f"✅ 提交架构审查通过评论到 PR #{pr_number}")
-        else:
-            # 提交行内评论
-            comments = self.formatter.format_issues(issues)
+            return
+
+        pr_files = self.client.get_pr_files(pr_number)
+        changed_filenames = {f.get("filename") for f in pr_files}
+
+        inline_issues = []
+        pr_level_issues = []
+        for issue in issues:
+            if issue.file in changed_filenames:
+                inline_issues.append(issue)
+            else:
+                pr_level_issues.append(issue)
+
+        if inline_issues:
+            comments = self.formatter.format_issues(inline_issues)
             results = self.client.submit_batch_comments(pr_number, comments)
 
             success_count = sum(1 for r in results if r["success"])
             print(
-                f"✅ 提交 {success_count}/{len(results)} 条架构评论到 PR #{pr_number}"
+                f"✅ 提交 {success_count}/{len(results)} 条行内评论到 PR #{pr_number}"
             )
 
             for result in results:
                 if not result["success"]:
                     print(f"  ❌ 失败: {result['comment']['path']} - {result['error']}")
+
+        if pr_level_issues:
+            body = self.formatter.format_pr_level_issues(pr_level_issues)
+            try:
+                self.client.submit_pr_comment(pr_number, body)
+                print(
+                    f"✅ 提交 {len(pr_level_issues)} 条 PR 评论到 PR #{pr_number}（非变更文件，降级为 PR 级评论）"
+                )
+            except Exception as e:
+                print(f"  ❌ PR 评论提交失败: {e}")
 
 
 def mode_extract_info(args, reviewer: ArchitectureReviewer):
