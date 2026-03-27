@@ -25,10 +25,12 @@ robot:
     so101_act:
       path: ./models/502000/pretrained_model
       policy_type: act
-      # Normalization parameters (optional, for future use)
-      normalization:
-        action_scale: [0.0314, 0.0314, 0.0314, 0.0314, 0.0314, 0.0008]
-        action_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.04]
+      # LeRobot motor normalization mode used during training.
+      # Determines how rad ↔ LeRobot units are converted:
+      #   range_m100_100 : arm [-100,+100], gripper [0,100]  (LeRobot default)
+      #   degrees        : centered degrees = (ticks - mid) * 360 / 4095
+      #   none           : no conversion (pass-through, units already match)
+      lerobot_norm_mode: range_m100_100
 
   # ============================================
   # Unified joint definitions (Single Source of Truth)
@@ -138,12 +140,6 @@ robot:
     port: /dev/ttyACM0
     calib_file: $(env HOME)/.calibrate/so101_follower_calibrate.json
     joint_names: ["1", "2", "3", "4", "5", "6"]
-    # LeRobot motor normalization mode used during training.
-    # Determines how rad ↔ LeRobot units are converted:
-    #   range_m100_100 : arm [-100,+100], gripper [0,100]  (LeRobot default)
-    #   degrees        : centered degrees = (ticks - mid) * 360 / 4095
-    #   none           : no conversion (pass-through, units already match)
-    lerobot_norm_mode: range_m100_100
     # Reset positions (optional) - uses 'rest' pose from SRDF
     reset_positions:
       "1": 0.0       # shoulder_pan:  centered

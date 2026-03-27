@@ -29,7 +29,6 @@ from std_srvs.srv import Empty
 from ibrobot_msgs.action import DispatchInfer
 from ibrobot_msgs.msg import VariantsList
 from robot_config.contract_utils import iter_specs
-from robot_config.utils import build_joint_conversion_table
 from tensormsg.converter import TensorMsgConverter
 
 from .topic_executor import TopicExecutor
@@ -58,7 +57,6 @@ class ActionDispatcherNode(Node):
         self.declare_parameter('inference_action_server', '/act_inference_node/DispatchInfer')
         self.declare_parameter('robot_config_path', '')
         self.declare_parameter('joint_state_topic', '/joint_states')
-        self.declare_parameter('lerobot_norm_mode', 'range_m100_100')
         
         # Temporal smoothing parameters
         self.declare_parameter('temporal_smoothing_enabled', False)
@@ -107,7 +105,6 @@ class ActionDispatcherNode(Node):
         # 4. Load Contract (Essential for TopicExecutor mapping)
         robot_config_path = self.get_parameter('robot_config_path').value
         self._action_specs = []
-        self._joint_rad_limits = []  # populated from calibration below
         if robot_config_path:
             try:
                 from robot_config.loader import load_robot_config
@@ -115,31 +112,6 @@ class ActionDispatcherNode(Node):
                 self._contract = robot_cfg.to_contract()
                 self._action_specs = [s for s in iter_specs(self._contract) if s.is_action]
                 self.get_logger().info(f"Loaded {len(self._action_specs)} action specs from robot_config")
-
-                # Build unit conversion table from calibration file
-                calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
-                joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
-                gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
-                norm_mode = self.get_parameter('lerobot_norm_mode').value
-                if calib_file and joint_names:
-                    self._joint_rad_limits = build_joint_conversion_table(
-                        calib_file, joint_names, gripper_joints,
-                        norm_mode=norm_mode,
-                    )
-                    self.get_logger().info(
-                        f"Loaded joint conversion table (mode={norm_mode}): "
-                        f"{len(self._joint_rad_limits)} joints"
-                    )
-                    for i, (rmin, rmax, span, off) in enumerate(self._joint_rad_limits):
-                        self.get_logger().info(
-                            f"  joint {joint_names[i]}: rad=[{rmin:.4f}, {rmax:.4f}], "
-                            f"pct_span={span}, pct_offset={off}"
-                        )
-                else:
-                    self.get_logger().warn(
-                        "Missing calib_file or joint_names in config; "
-                        "unit conversion disabled (pass-through)"
-                    )
             except Exception as e:
                 self.get_logger().error(f"Failed to load contract from {robot_config_path}: {e}")
         else:
@@ -191,16 +163,6 @@ class ActionDispatcherNode(Node):
         """Optional: could use current state for safety or initialization."""
         pass
 
-    def _lerobot_to_rad(self, action: np.ndarray) -> np.ndarray:
-        """Convert LeRobot percentage units to radians for ros2_control."""
-        if not self._joint_rad_limits:
-            return action  # no calibration loaded, pass-through
-        out = np.empty_like(action, dtype=np.float64)
-        for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
-            if i < len(action):
-                out[i] = (action[i] - offset) / span * (rmax - rmin) + rmin
-        return out
-    
     def _get_plan_length(self) -> int:
         """Get current plan length (works for both modes)."""
         if self._smoother is not None:
@@ -241,11 +203,7 @@ class ActionDispatcherNode(Node):
                 action_np = action.detach().cpu().numpy()
             else:
                 action_np = np.array(action)
-            # Convert from LeRobot percentage units to radians (ros2_control).
-            # Arm joints: [-100, +100] → [joint_min, joint_max] rad
-            # Gripper:    [0, 100]     → [0, 1.0] rad
-            radian_action = self._lerobot_to_rad(action_np)
-            self._executor.execute(radian_action)
+            self._executor.execute(action_np)
 
     def _request_inference(self):
         """Send async goal to inference service."""

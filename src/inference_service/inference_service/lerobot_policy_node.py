@@ -94,6 +94,7 @@ class _NodeConfig:
     repo_id: Optional[str] = None
     checkpoint: Optional[str] = None
     robot_config_path: Optional[str] = None
+    lerobot_norm_mode: str = "range_m100_100"
     device: str = "auto"
     frequency: float = 10.0
     use_header_time: bool = True
@@ -218,7 +219,7 @@ class LeRobotPolicyNode(Node):
         calib_file = robot_cfg.ros2_control.params.get("calib_file", "")
         joint_names = robot_cfg.ros2_control.params.get("joint_names", [])
         gripper_joints = robot_cfg.ros2_control.params.get("gripper_joints", ["6"])
-        norm_mode = robot_cfg.ros2_control.params.get("lerobot_norm_mode", "range_m100_100")
+        norm_mode = self._config.lerobot_norm_mode
         if calib_file and joint_names:
             self._joint_rad_limits = build_joint_conversion_table(
                 calib_file, joint_names, gripper_joints,
@@ -442,25 +443,38 @@ class LeRobotPolicyNode(Node):
         
         return obs_frame
 
-    # -- Unit conversion: ros2_control radians <-> LeRobot percentage --------
-    # LeRobot datasets store joint positions as percentage-of-range values:
-    #   arm joints  -> RANGE_M100_100: linearly mapped to [-100, +100]
-    #   gripper     -> RANGE_0_100:    linearly mapped to [0, 100]
+    # -- Unit conversion: ros2_control radians <-> LeRobot units ------------
+    # LeRobot datasets store joint positions in normalised units that depend
+    # on the motor norm mode selected during training:
+    #   RANGE_M100_100:  arm [-100,+100], gripper [0,100]
+    #   DEGREES:         centred degrees = (tick - mid) * 360 / 4095
+    #   NONE:            no conversion (pass-through)
     # ros2_control publishes /joint_states in radians.
-    # The mapping is:  pct = (rad - rad_min) / (rad_max - rad_min) * span + offset
-    #   RANGE_M100_100:  span=200, offset=-100
-    #   RANGE_0_100:     span=100, offset=0
+    #
+    # Observation path (input):  rad  →  _rad_to_lerobot  →  model
+    # Action path     (output):  model  →  _lerobot_to_rad  →  rad
+    #
     # _joint_rad_limits is populated at runtime from the calibration JSON
     # in _load_contract() via build_joint_conversion_table().
 
     def _rad_to_lerobot(self, state: np.ndarray) -> np.ndarray:
-        """Convert radians to LeRobot percentage units."""
+        """Convert radians to LeRobot units (observation input path)."""
         if not self._joint_rad_limits:
             return state  # no calibration loaded, pass-through
         out = np.empty_like(state, dtype=np.float64)
         for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
             if i < len(state):
                 out[i] = (state[i] - rmin) / (rmax - rmin) * span + offset
+        return out
+
+    def _lerobot_to_rad(self, action: np.ndarray) -> np.ndarray:
+        """Convert LeRobot units to radians (action output path)."""
+        if not self._joint_rad_limits:
+            return action  # no calibration loaded, pass-through
+        out = np.empty_like(action, dtype=np.float64)
+        for i, (rmin, rmax, span, offset) in enumerate(self._joint_rad_limits):
+            if i < action.shape[-1]:
+                out[..., i] = (action[..., i] - offset) / span * (rmax - rmin) + rmin
         return out
     
     def _dispatch_infer_callback(self, goal_handle):
@@ -472,9 +486,7 @@ class LeRobotPolicyNode(Node):
             obs_frame = self._sample_obs_frame(obs_timestamp_ns)
 
             # Convert observation.state from radians (ros2_control) to LeRobot
-            # percentage units to match the dataset statistics used for normalization.
-            # LeRobot uses RANGE_M100_100 for arm joints and RANGE_0_100 for gripper.
-            # Action-side reverse mapping is in action_dispatcher.
+            # units to match the dataset statistics used for normalization.
             if "observation.state" in obs_frame:
                 obs_frame["observation.state"] = self._rad_to_lerobot(obs_frame["observation.state"])
 
@@ -483,7 +495,14 @@ class LeRobotPolicyNode(Node):
             else:
                 result = self._execute_monolithic(obs_frame)
 
-            action_msg = self._create_action_msg(result.action)
+            # Convert action chunk from LeRobot units back to radians
+            # so the dispatcher receives Contract-declared units (radians).
+            action_rad = result.action
+            if self._joint_rad_limits:
+                action_np = result.action.detach().cpu().numpy() if torch.is_tensor(result.action) else result.action
+                action_rad = torch.from_numpy(self._lerobot_to_rad(action_np)).float()
+
+            action_msg = self._create_action_msg(action_rad)
             self._action_pub.publish(action_msg)
             
             response = DispatchInfer.Result()
@@ -704,6 +723,7 @@ def main() -> None:
             "repo_id",
             "checkpoint",
             "robot_config_path",
+            "lerobot_norm_mode",
             "device",
             "frequency",
             "use_header_time",
@@ -722,6 +742,8 @@ def main() -> None:
                 default = "/inference/action"
             elif p in ["repo_id", "checkpoint", "robot_config_path"]:
                 default = ""
+            elif p == "lerobot_norm_mode":
+                default = "range_m100_100"
             elif p == "device":
                 default = "auto"
             elif p == "frequency":
@@ -746,6 +768,7 @@ def main() -> None:
             ]
         }
         config["device"] = temp_node.get_parameter("device").value
+        config["lerobot_norm_mode"] = temp_node.get_parameter("lerobot_norm_mode").value
         config["frequency"] = temp_node.get_parameter("frequency").value
         config["use_header_time"] = temp_node.get_parameter("use_header_time").value
         config["execution_mode"] = temp_node.get_parameter("execution_mode").value
