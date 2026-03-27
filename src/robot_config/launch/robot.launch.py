@@ -76,7 +76,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
     RegisterEventHandler,
-    TimerAction,
+    TimerAction
 )
 from launch.event_handlers import OnProcessExit
 
@@ -290,8 +290,9 @@ def launch_setup(context, *args, **kwargs):
     print(f"[robot_config] ========== Checking Teleop Mode ==========")
     try:
         # Check if teleop mode is enabled
-        if active_control_mode == 'teleop':
-            print(f"[robot_config] TELEOP MODE DETECTED")
+        _teleop_modes = ('teleop',)
+        if active_control_mode in _teleop_modes:
+            print(f"[robot_config] TELEOP MODE DETECTED ({active_control_mode})")
 
             # Check if teleoperation is configured
             teleop_config = robot_config.get('teleoperation', {})
@@ -360,9 +361,8 @@ def launch_setup(context, *args, **kwargs):
         if with_moveit_str != '':
             with_moveit = parse_bool(with_moveit_str, default=False)
         else:
-            # Auto-detect: true if mode is 'moveit_planning' or contains 'moveit'
             with_moveit = 'moveit' in active_control_mode.lower()
-        
+
         print(f"[robot_config] with_moveit={with_moveit}")
 
         if with_moveit:

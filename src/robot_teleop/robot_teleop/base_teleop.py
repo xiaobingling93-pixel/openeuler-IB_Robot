@@ -2,6 +2,8 @@
 Base teleoperation device interface
 
 Defines the abstract interface that all teleoperation devices must implement.
+This enables the "One Node, Many Devices" design pattern where a single
+TeleopNode can work with any device implementing this interface.
 """
 
 import logging
@@ -13,7 +15,7 @@ class BaseTeleopDevice(ABC):
     """
     Abstract base class for all teleoperation devices.
 
-    All teleoperation devices (leader arms, gamepads, VR controllers) must
+    All teleoperation devices (leader arms, gamepads, VR controllers, phones) must
     inherit from this class and implement the required abstract methods.
 
     The class provides a standardized interface for:
@@ -21,8 +23,15 @@ class BaseTeleopDevice(ABC):
     - Joint target acquisition
     - Resource cleanup
 
+    Design Pattern: Strategy Pattern
+    - TeleopNode is the Context
+    - BaseTeleopDevice is the Strategy interface
+    - Concrete devices (LeaderArmDevice, PhoneDevice) are Concrete Strategies
+
     Attributes:
         _is_connected (bool): Internal connection status flag
+        _config (dict): Device configuration
+        _node: ROS 2 node reference (optional; required by devices that need ROS)
         logger: Python logger for device messages
     """
 
@@ -77,10 +86,10 @@ class BaseTeleopDevice(ABC):
         - Apply device-specific transformations (calibration, mapping, IK)
         - Return joint-angle mapping in a standardized format
 
-        Device-specific behavior:
-        - Leader Arm: Direct joint mapping from serial readings
-        - Xbox Controller: Maintain internal position state, apply delta increments
-        - VR Controller: Call IK solver to convert pose → joint angles
+        Device-specific behaviour:
+        - Leader Arm: Direct joint mapping from serial readings (returns all joints)
+        - Phone: Drives MoveIt Servo for arm Cartesian control; returns only
+          gripper target (arm keys absent → TeleopNode skips arm publisher)
 
         Returns:
             Dict[str, float]: Mapping from joint names to target angles (radians)

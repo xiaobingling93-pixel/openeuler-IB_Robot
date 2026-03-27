@@ -349,13 +349,29 @@ robot:
   # ============================================
   teleoperation:
     enabled: true
-    active_device: "so101_leader" # You can switch between "so101_leader" and "xbox_controller"
+    active_device: "so101_leader" # You can switch between "so101_leader" and "xbox_controller" and "phone_teleop"
     devices:
       - name: "so101_leader"
         type: "leader_arm"
         port: "/dev/ttyACM1"
         calib_file: "$(env HOME)/.calibrate/so101_leader_calibrate.json"
-
+      - name: "phone_teleop"
+        type: "phone"
+        control_frequency: 30.0
+        phone_config:
+          phone_os: "android" # android/ios
+          camera_offset: [0.0, -0.02, 0.04]
+          end_effector_step_sizes:
+            x: 1.5
+            y: 1.5
+            z: 1.5
+          end_effector_bounds:
+            min: [-0.5, -0.5, 0.0]
+            max: [0.5, 0.5, 0.5]
+          max_ee_step_m: 0.1
+          gripper_speed_factor: 20.0
+          gripper_range: [0.0, 1.0]
+        ee_frame_name: "gripper"
       - name: "xbox_controller"
         type: "xbox_controller"
         input_device: "/dev/input/js0"
@@ -375,7 +391,7 @@ robot:
         "3": {"min": -1.6813, "max": 1.6828}
         "4": {"min": -1.65806, "max": 1.65806}
         "5": {"min": -2.9115, "max": 2.9115}
-        "6": {"min": 0.0, "max": 1.0}  # Gripper
+        "6": {"min": 0.0, "max": 1.0}
 
   # ============================================
   # Recording Configuration

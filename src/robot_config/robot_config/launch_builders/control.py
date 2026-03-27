@@ -176,13 +176,17 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
                     if i < len(spawners):
                         spawners_dict[name] = spawners[i]
     else:
-        # Simulation mode — spawners run after Gazebo model insert (robot.launch.py)
+        # Simulation mode
+        # gz_ros2_control plugin provides controller_manager, but spawners
+        # must wait until the Gazebo entity is fully created and the plugin
+        # has initialized the hardware interface.
         print("[robot_config] Simulation mode: Gazebo provides controller_manager")
         print(f"[robot_config] Controllers to spawn (deferred until after gz spawn): {controller_names}")
 
         if is_auto_start and controller_names:
             deferred_sim_spawners = generate_controller_spawners(controller_names, use_sim=True)
-            print(f"[robot_config] Deferred {len(deferred_sim_spawners)} controller spawners")
+            print(f"[robot_config] Deferring {len(deferred_sim_spawners)} controller spawners by (handled by caller)")
+            # Store spawners in dict (for downstream sequencing, e.g. MoveIt)
             for i, name in enumerate(controller_names):
                 if i < len(deferred_sim_spawners):
                     spawners_dict[name] = deferred_sim_spawners[i]

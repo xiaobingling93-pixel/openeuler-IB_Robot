@@ -79,9 +79,6 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
     safety_config = teleop_config.get('safety', {})
     joint_limits = safety_config.get('joint_limits', {})
 
-    # Get control frequency (default: 50 Hz)
-    control_frequency = 50.0
-
     # Get joint names from robot config
     joints_config = robot_config.get('joints', {})
     arm_joint_names = joints_config.get('arm', [])
@@ -111,10 +108,24 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
         device_param['joint_limits'] = joint_limits
 
     # Add any extra device-specific parameters
-    known_keys = {'name', 'type', 'port', 'calib_file', 'joint_mapping'}
+    known_keys = {
+        'name', 'type', 'port', 'calib_file', 'joint_mapping', 'phone_config',
+        'group_name', 'base_link_name', 'ee_frame_name', 'target_frame_name', 'ik_timeout',
+    }
     for key, value in device_config.items():
         if key not in known_keys:
             device_param[key] = value
+
+    if 'phone_config' in device_config:
+        device_param['phone_config'] = device_config['phone_config']
+
+    for moveit_key in ('group_name', 'base_link_name', 'ee_frame_name', 'target_frame_name', 'ik_timeout'):
+        if moveit_key in device_config:
+            device_param[moveit_key] = device_config[moveit_key]
+
+    device_type = device_config.get('type', '')
+
+    control_frequency = device_config.get('control_frequency', 50.0)
 
     # Prepare lerobot environment
     env = prepare_lerobot_env()
@@ -125,7 +136,26 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
     print(f"[DEBUG] teleop.py: device_param_json: {device_param_json}")
     print(f"[DEBUG] teleop.py: device_param dict: {device_param}")
 
-    # Create teleop node
+    moveit_config = robot_config.get('moveit', {})
+
+    # For phone devices: inject extra params into device_config so PhoneDevice
+    # can read arm/gripper joint names, home positions, and servo frame at runtime.
+    if device_type == 'phone':
+        base_link_name = device_param.get('base_link_name', moveit_config.get('base_link', 'base_link'))
+        reset_positions = robot_config.get('ros2_control', {}).get('reset_positions', {})
+        home_positions_list = [reset_positions.get(n, 0.0) for n in arm_joint_names]
+
+        device_param_ext = dict(device_param)
+        device_param_ext.update({
+            'arm_joint_names':      arm_joint_names,
+            'gripper_joint_names':  gripper_joint_names,
+            'home_joint_positions': home_positions_list,
+            'base_link_name':       base_link_name,
+            'control_frequency':    50.0,
+        })
+        device_param_json = json.dumps(device_param_ext)
+        control_frequency = 50.0
+
     teleop_node = Node(
         package='robot_teleop',
         executable='teleop_node',
@@ -133,16 +163,15 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
         output='screen',
         env=env,
         parameters=[{
-            'control_frequency': control_frequency,
-            'device_config': device_param_json,
-            'joint_limits': joint_limits_json,
-            'arm_joint_names': arm_joint_names,
+            'control_frequency':   control_frequency,
+            'device_config':       device_param_json,
+            'joint_limits':        joint_limits_json,
+            'arm_joint_names':     arm_joint_names,
             'gripper_joint_names': gripper_joint_names,
         }],
     )
-
     nodes.append(teleop_node)
-    print(f"[teleop_builder] Generated teleop node for device: {active_device_name} (type: {device_config.get('type')})")
+    print(f"[teleop_builder] Generated teleop_node for device: {active_device_name} (type: {device_type})")
 
     # Add joy_node to read physical joystick and publish to /joy
     if device_config.get('type') == 'xbox_controller':
@@ -163,8 +192,8 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
         nodes.append(joy_node)
         print(f"[teleop_builder] Added joy_node for input device: {input_dev}")
 
-    # Add MoveIt Servo node for Xbox controller
-    if device_config.get('type') == 'xbox_controller':
+    # Add MoveIt Servo node for Xbox controller and phone (both use Cartesian Servo control)
+    if device_config.get('type') in ('xbox_controller', 'phone'):
         servo_node = _create_servo_node(robot_config, device_config, robot_description_dict)
         nodes.append(servo_node)
         print(f"[teleop_builder] Generated servo_node for Cartesian control")
@@ -287,6 +316,11 @@ def validate_teleop_config(teleop_config: Dict[str, Any]) -> List[str]:
             if device.get('type') == 'leader_arm':
                 if not device.get('port'):
                     errors.append(f"Device '{active_device}': leader_arm requires 'port' field")
+
+            if device.get('type') == 'phone':
+                phone_config = device.get('phone_config', {})
+                if not phone_config:
+                    errors.append(f"Device '{active_device}': phone requires 'phone_config' field")
 
             break
 

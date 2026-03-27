@@ -157,44 +157,23 @@ class TeleopNode(Node):
                 self.get_logger().error(f"Device read failed: {e}")
                 return
 
-            # If read returned empty (communication error), skip this cycle
-            if not joint_targets:
-                return
-
         # Apply safety filter
         safe_targets = self.safety_filter.apply_limits(joint_targets)
 
         if not safe_targets:
             return
 
-        # 1. Publish Arm Commands (if all arm joints are present)
-        arm_positions = []
-        all_arm_present = True
-        for name in self.arm_joint_names:
-            if name in safe_targets:
-                arm_positions.append(safe_targets[name])
-            else:
-                all_arm_present = False
-                break
-
-        if all_arm_present and arm_positions:
+        # Only publish arm commands when all arm keys are present (avoids sending
+        # zeros when PhoneDevice omits arm keys during Servo Cartesian control)
+        if all(name in safe_targets for name in self.arm_joint_names):
             arm_msg = Float64MultiArray()
-            arm_msg.data = arm_positions
+            arm_msg.data = [safe_targets[name] for name in self.arm_joint_names]
             self.arm_cmd_pub.publish(arm_msg)
 
-        # 2. Publish Gripper Commands (if all gripper joints are present)
-        gripper_positions = []
-        all_gripper_present = True
-        for name in self.gripper_joint_names:
-            if name in safe_targets:
-                gripper_positions.append(safe_targets[name])
-            else:
-                all_gripper_present = False
-                break
-        
-        if all_gripper_present and gripper_positions:
+        if self.gripper_joint_names and \
+                all(name in safe_targets for name in self.gripper_joint_names):
             gripper_msg = Float64MultiArray()
-            gripper_msg.data = gripper_positions
+            gripper_msg.data = [safe_targets[name] for name in self.gripper_joint_names]
             self.gripper_cmd_pub.publish(gripper_msg)
 
         # Update diagnostics

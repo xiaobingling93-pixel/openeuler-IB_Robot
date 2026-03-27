@@ -8,12 +8,14 @@ configuration, enabling easy extension without modifying core code.
 from typing import Dict, Type
 from .base_teleop import BaseTeleopDevice
 from .devices.leader_arm import LeaderArmDevice
+from .phone.phone_device import PhoneDevice
 from .devices.xbox_controller import XboxTeleopDevice
 
 
 # Device registry - add new device types here
 DEVICE_MAP: Dict[str, Type[BaseTeleopDevice]] = {
     "leader_arm": LeaderArmDevice,  # SO-101 leader arm
+    "phone": PhoneDevice,
     "xbox_controller": XboxTeleopDevice,
 }
 
