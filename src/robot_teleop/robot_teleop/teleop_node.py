@@ -143,6 +143,10 @@ class TeleopNode(Node):
                 self.get_logger().error(f"Device read failed: {e}")
                 return
 
+            # If read returned empty (communication error), skip this cycle
+            if not joint_targets:
+                return
+
         safe_targets = self.safety_filter.apply_limits(joint_targets)
 
         if not safe_targets:
@@ -155,8 +159,7 @@ class TeleopNode(Node):
             arm_msg.data = [safe_targets[name] for name in self.arm_joint_names]
             self.arm_cmd_pub.publish(arm_msg)
 
-        if self.gripper_joint_names and \
-                all(name in safe_targets for name in self.gripper_joint_names):
+        if self.gripper_joint_names and all(name in safe_targets for name in self.gripper_joint_names):
             gripper_msg = Float64MultiArray()
             gripper_msg.data = [safe_targets[name] for name in self.gripper_joint_names]
             self.gripper_cmd_pub.publish(gripper_msg)

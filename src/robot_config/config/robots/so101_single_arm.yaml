@@ -23,7 +23,7 @@ robot:
   # ============================================
   models:
     so101_act:
-      path: /home/xqw/Research/IB_Robot/models/502000/pretrained_model
+      path: ./models/502000/pretrained_model
       policy_type: act
       # Normalization parameters (optional, for future use)
       normalization:
@@ -350,6 +350,18 @@ robot:
           gripper_speed_factor: 20.0
           gripper_range: [0.0, 1.0]
         ee_frame_name: "gripper"
+      - name: "xbox_controller"
+        type: "xbox_controller"
+        input_device: "/dev/input/js0"
+        default_mode: "joint"
+        mapping_config: "xbox_mapping"
+        servo_config: "so101_servo"
+        control_params:
+          deadzone: 0.1
+          joint_velocity_gain: 1.5
+          cartesian_linear_speed: 1.0
+          cartesian_angular_speed: 1.0
+          long_press_duration: 0.5
     safety:
       joint_limits:
         "1": {"min": -2.0693, "max": 2.0709}

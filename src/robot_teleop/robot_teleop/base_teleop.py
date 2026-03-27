@@ -41,7 +41,7 @@ class BaseTeleopDevice(ABC):
 
         Args:
             config (dict): Device configuration from robot_config YAML
-            node: ROS 2 node reference, passed through from TeleopNode
+            node: Optional ROS 2 node instance for creating subscribers/publishers
         """
         self._is_connected = False
         self._config = config

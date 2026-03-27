@@ -5,10 +5,11 @@ Separated from control.py so both Gazebo and MuJoCo adapters can reuse
 the same URDF generation without controller logic.
 
 Public API:
-    generate_robot_description(robot_config, use_sim) -> (full_urdf, params) | None
+    generate_robot_description(robot_config, use_sim, mujoco_model_path=None) -> (full_urdf, params) | None
 """
 
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import xacro as _xacro_lib
 
@@ -83,7 +84,56 @@ def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
     return "\n".join(parts)
 
 
-def generate_robot_description(robot_config: dict, use_sim):
+def _inject_mujoco_camera_sensors(full_urdf: str, peripherals: list) -> str:
+    """Inject MuJoCo <sensor> blocks into the <ros2_control> element of the URDF.
+
+    The upstream mujoco_ros2_control plugin reads frame_name/image_topic from
+    the URDF <sensor> params rather than using hardcoded defaults.  This makes
+    YAML ``optical_frame_id`` the single source of truth for camera frame IDs.
+
+    Only called when platform == "mujoco".  Gazebo and real-hardware paths are
+    completely untouched — this function is never invoked for them.
+
+    Args:
+        full_urdf:   Complete URDF XML string (post camera-injection).
+        peripherals: List of peripheral dicts from YAML config.
+
+    Returns:
+        Modified URDF string with sensor blocks injected, or the original
+        string unchanged if no opencv cameras are present or parsing fails.
+    """
+    opencv_cams = [p for p in peripherals
+                   if p.get("type") == "camera" and p.get("driver") == "opencv"]
+    if not opencv_cams:
+        return full_urdf
+    try:
+        root = ET.fromstring(full_urdf)
+        ros2_ctrl = root.find(".//ros2_control")
+        if ros2_ctrl is None:
+            return full_urdf
+        for periph in opencv_cams:
+            name = periph["name"]
+            cam_name = f"{name}_camera"   # must match mujoco_adapter.py convention
+            optical_frame = periph.get("optical_frame_id",
+                                       f"camera_{name}_optical_frame")
+            sensor = ET.SubElement(ros2_ctrl, "sensor")
+            sensor.set("name", cam_name)
+            for param_key, param_val in [
+                ("frame_name",  optical_frame),
+                ("image_topic", f"{cam_name}/color"),
+                ("info_topic",  f"{cam_name}/camera_info"),
+                ("depth_topic", f"{cam_name}/depth"),
+            ]:
+                p = ET.SubElement(sensor, "param", name=param_key)
+                p.text = param_val
+        print(f"[robot_config] Injected {len(opencv_cams)} MuJoCo camera sensor(s) into ros2_control block")
+        return ET.tostring(root, encoding="unicode")
+    except ET.ParseError as e:
+        print(f"[robot_config] WARNING: could not inject MuJoCo camera sensors: {e}")
+        return full_urdf
+
+
+def generate_robot_description(robot_config: dict, use_sim, mujoco_model_path: str = None):
     """Build the full robot URDF from YAML config (xacro + camera injection).
 
     Processes the base xacro URDF and dynamically injects camera links/joints
@@ -126,9 +176,20 @@ def generate_robot_description(robot_config: dict, use_sim):
         'use_sim': 'true' if is_sim else 'false',
         'port': port,
         'calib_file': calib_file,
-        'reset_positions': f"'{reset_positions_json}'",
+        # Pass raw JSON — no extra quotes. xacro receives this as a plain
+        # string arg and injects it into <param name="reset_positions"> as
+        # text content (not an XML attribute), so no XML-escaping is needed.
+        # Wrapping in f"'{json}'" caused the hardware plugin to receive a
+        # literal single-quoted string '{"1":0.0}' and fail to parse it.
+        'reset_positions': reset_positions_json,
     }
     if is_sim:
+        sim_platform = robot_config.get("simulation", {}).get("platform", "gazebo")
+        if sim_platform == "mujoco":
+            xacro_mappings["sim_plugin"] = "mujoco_ros2_control/MujocoSystemInterface"
+            if mujoco_model_path:
+                xacro_mappings["mujoco_model"] = mujoco_model_path
+        # Gazebo: xacro default="gz_ros2_control/GazeboSimSystem" — no explicit mapping needed
         _gz_ctrl_yaml = resolve_ros_path("$(find so101_hardware)/config/so101_controllers.yaml")
         if Path(_gz_ctrl_yaml).exists():
             xacro_mappings["gz_ros2_control_parameters_file"] = str(Path(_gz_ctrl_yaml).resolve())
@@ -148,6 +209,15 @@ def generate_robot_description(robot_config: dict, use_sim):
         print(f"[robot_config] Injected {sum(1 for p in peripherals if p.get('type') == 'camera')} camera(s) into URDF from YAML")
     else:
         full_urdf = base_urdf
+
+    # MuJoCo camera sensor injection is disabled: apt mujoco_ros2_control 0.0.2
+    # crashes when initializing sensors for body-attached cameras (e.g. wrist_camera
+    # on the gripper body).  The fix exists in the upstream repo (3 commits beyond
+    # the 0.0.2 tag) but is not yet in the apt package.  Camera topic remappings
+    # in mujoco_adapter.py still work; frame_name defaults to the MJCF camera name.
+    # Re-enable once apt is updated past 0.0.2.
+    # if is_sim and robot_config.get("simulation", {}).get("platform") == "mujoco":
+    #     full_urdf = _inject_mujoco_camera_sensors(full_urdf, peripherals)
 
     robot_description_params = {"robot_description": full_urdf}
     if is_sim:
