@@ -12,10 +12,14 @@ tmp/
 __pycache__/
 *.py[cod]
 *$py.class
+.ruff_cache
+
+.cache
 
 .claude
 .gemini
 .marscode
 .trae
 .opencode
+.swarm
 openspec

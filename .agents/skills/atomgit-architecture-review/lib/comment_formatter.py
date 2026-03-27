@@ -72,8 +72,6 @@ ARCHITECTURE_REFERENCES = {
 }
 
 
-
-
 class CommentFormatter:
     """评论格式化器"""
 
@@ -174,6 +172,31 @@ class CommentFormatter:
             comments.append(self.format_issue(issue, position))
 
         return comments
+
+    def format_pr_level_issue(self, issue: ArchitectureIssue) -> str:
+        """格式化单个问题为 PR 级评论（非变更文件使用）"""
+        icon = self.get_severity_icon(issue.severity)
+        pillar_name = self.get_pillar_name(issue.pillar)
+
+        body = f"**{icon} {issue.title}**\n\n"
+        body += f"**文件**: `{issue.file}`\n"
+        body += f"**严重性**: {issue.severity}\n"
+        body += f"**架构支柱**: {pillar_name}\n\n"
+        if issue.description:
+            body += f"{issue.description}\n\n"
+        if issue.fix:
+            body += f"**修改方案**: {issue.fix}\n\n"
+
+        body = self.add_references(body, issue.pillar)
+        body += self.ai_signature
+        return body
+
+    def format_pr_level_issues(self, issues: List[ArchitectureIssue]) -> str:
+        """格式化多个问题为一条 PR 级评论"""
+        parts = []
+        for issue in issues:
+            parts.append(self.format_pr_level_issue(issue))
+        return "\n\n---\n\n".join(parts)
 
     def format_summary(self, issues: List[ArchitectureIssue]) -> str:
         """格式化架构审查总结"""
