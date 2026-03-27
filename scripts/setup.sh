@@ -279,6 +279,14 @@ check_openeuler() {
         log_info "Installing gcc-c++, vim-enhanced, and ffmpeg-devel..."
         sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced ffmpeg-devel
 
+        # On openEuler (and many RedHat/Fedora-based systems), FFmpeg headers
+        # are installed under /usr/include/ffmpeg/ instead of /usr/include/.
+        # Export CPATH so that packages like usb_cam can find them during build.
+        if [[ -d /usr/include/ffmpeg ]]; then
+            log_info "Adding /usr/include/ffmpeg to CPATH for FFmpeg header discovery..."
+            export CPATH="/usr/include/ffmpeg${CPATH:+:$CPATH}"
+        fi
+
         # usb_cam is not available as a system package on openEuler,
         # so we initialize the submodule to build from source.
         if [[ ! -d "${WORKSPACE}/src/usb_cam/.git" ]]; then
