@@ -276,8 +276,8 @@ check_openeuler() {
             log_info "openEuler repo already configured, skipping add-repo."
         fi
 
-        log_info "Installing gcc-c++ and vim-enhanced..."
-        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced
+        log_info "Installing gcc-c++, vim-enhanced, and ffmpeg-devel..."
+        sudo dnf install -y --nogpgcheck gcc-c++ vim-enhanced ffmpeg-devel
 
         # usb_cam is not available as a system package on openEuler,
         # so we initialize the submodule to build from source.
