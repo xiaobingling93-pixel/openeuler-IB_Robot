@@ -12,7 +12,8 @@
   <include file="{{ROBOT_XML_PATH}}"/>
 
   <visual>
-    <headlight diffuse="0.6 0.6 0.6" ambient="0.4 0.4 0.4" specular="0.0 0.0 0.0"/>
+    <headlight diffuse="0.15 0.15 0.15" ambient="0.6 0.6 0.6" specular="0.0 0.0 0.0"/>
+    <quality shadowsize="2048"/>
     <rgba haze="0.15 0.25 0.35 1.0"/>
     <global azimuth="160" elevation="-20"/>
   </visual>
@@ -25,6 +26,8 @@
              width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true"
               texrepeat="5 5" reflectance="0.2"/>
+    <material name="mat_bluetable" specular="0.05" shininess="0.01"/>
+    <material name="mat_plate" specular="0.1" shininess="0.02"/>
     <mesh name="bluetable_mesh"    file="{{MESHES_DIR}}/bluetable.obj"      scale="0.156 0.156 0.156"/>
     <mesh name="green_curten_mesh" file="{{MESHES_DIR}}/greencurten_mj.obj" scale="0.15 0.15 0.15"/>
     <mesh name="plate_mesh"        file="{{MESHES_DIR}}/plate.obj"          scale="0.08 0.08 0.08"/>
@@ -32,7 +35,7 @@
   </asset>
 
   <worldbody>
-    <light pos="0.0 0.0 3.5" dir="0.0 0.0 -1.0" directional="true"/>
+    <light pos="1.0 1.0 3.5" dir="-0.2 -0.2 -1.0" directional="true" diffuse="0.4 0.4 0.4"/>
     <geom name="floor" size="0 0 0.05" pos="0 0 -0.411" type="plane" material="groundplane"/>
     <!--
       table_surface: rigid contact parameters override MuJoCo defaults (solref="0.02 1").
@@ -49,7 +52,7 @@
 
     <body name="bluetable" pos="0.000000 0.000000 -0.321000" euler="1.570796 0.000000 0.000000">
       <geom type="mesh" mesh="bluetable_mesh" rgba="0.2000 0.3000 0.6500 1.0000"
-            contype="0" conaffinity="0"/>
+            contype="0" conaffinity="0" material="mat_bluetable"/>
     </body>
 
     <body name="green_curten" pos="0.000000 -0.345000 0.000000" euler="1.570796 0.000000 3.141593">
@@ -61,7 +64,7 @@
           gravcomp="0">
       <joint name="plate_free" type="free" damping="5.0"/>
       <geom type="mesh" mesh="plate_mesh" rgba="0.9200 0.9000 0.8500 1.0000"
-            contype="0" conaffinity="0"
+            contype="0" conaffinity="0" material="mat_plate"
             friction="1.0 0.01 0.001" condim="4" mass="0"
             solimp="0.99 0.999 0.0005 0.5 2" solref="0.004 2"/>
       <geom type="cylinder" size="0.1 0.006" pos="0.0 -0.009 0.0"

@@ -34,7 +34,7 @@
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
-      <specular>0.2 0.2 0.2 1</specular>
+      <specular>0.1 0.1 0.1 1</specular>
       <attenuation>
         <range>1000</range>
         <constant>0.9</constant>
@@ -44,11 +44,11 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Visible floor at z=-0.274 (matches MuJoCo floor geom position).
+    <!-- Visible floor at z=-0.411 (matches MuJoCo floor geom position).
          The table mesh spans from here up to z=0 (the tabletop). -->
     <model name="ground_plane">
       <static>true</static>
-      <pose>0 0 -0.274 0 0 0</pose>
+      <pose>0 0 -0.411 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
@@ -98,16 +98,17 @@
          ================================================================ -->
 
     <!-- Blue table: static, visual only.
-         MuJoCo-designed position: body center z=-0.206, mesh top at z=0 (= table_surface_collision = robot spawn). -->
+         Position: body center z=-0.321, mesh top at z=0 (= table_surface_collision = robot spawn).
+         Scale 0.156 matches MuJoCo and layout.yaml. -->
     <model name="bluetable">
       <static>true</static>
-      <pose>0 0 -0.206 1.5708 0 0</pose>
+      <pose>0 0 -0.321 1.5708 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
             <mesh>
               <uri>file://{{MESHES_DIR}}/bluetable.obj</uri>
-              <scale>0.1 0.1 0.1</scale>
+              <scale>0.156 0.156 0.156</scale>
             </mesh>
           </geometry>
           <material>
@@ -122,7 +123,7 @@
     <!-- Green curtain: static, visual only, double-sided to avoid invisible backface. -->
     <model name="green_curten">
       <static>true</static>
-      <pose>0 -0.4 0 1.5708 0 0</pose>
+      <pose>0 -0.345 0 1.5708 0 3.14159</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -194,7 +195,7 @@
          Collision: box approximating the banana shape at scale=0.012.
          Inertia: uniform box m=0.1 kg, ~0.15×0.04×0.04 m (post-scale). -->
     <model name="banana">
-      <pose>0.22 0.02 0.075 1.5708 0 0</pose>
+      <pose>0.0 0.02 0.075 1.5708 0 0</pose>
       <link name="link">
         <inertial>
           <mass>0.1</mass>

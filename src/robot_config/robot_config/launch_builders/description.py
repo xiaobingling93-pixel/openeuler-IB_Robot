@@ -9,6 +9,7 @@ Public API:
 """
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import xacro as _xacro_lib
@@ -16,7 +17,7 @@ import xacro as _xacro_lib
 from robot_config.utils import resolve_ros_path, parse_bool
 
 
-def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
+def _build_cameras_urdf_from_yaml(peripherals: list, platform: str = "gazebo") -> str:
     """从 YAML peripherals 动态生成相机 link/joint/gazebo XML。
 
     命名约定（与 sim_peripheral_bridge.py 的 bridge 路径对齐）：
@@ -30,14 +31,31 @@ def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
     固定相机（parent_frame=world/base）和随臂相机（parent_frame=gripper）
     生成逻辑完全相同，区别仅在于 parent link 的值。
     MuJoCo 使用的 <gazebo reference> 块会被忽略（不影响 MJCF 解析）。
+
+    当 use_default_transform=True 时，从 camera_presets 读取平台专属默认位姿。
+
+    Args:
+        peripherals: YAML peripherals 列表。
+        platform: 当前仿真平台 ("gazebo" 或 "mujoco")。
     """
+    from robot_config.launch_builders.sim_backend.camera_presets import get_preset
+
     parts = []
     for periph in peripherals:
         if periph.get("type") != "camera":
             continue
         name        = periph["name"]
         frame_id    = periph.get("frame_id", f"camera_{name}_frame")
+
+        # --- preset 查找 ---
         t           = periph.get("transform", {})
+        cam_fovy    = periph.get("fovy", 60)
+        if periph.get("use_default_transform", False):
+            preset = get_preset(platform, name)
+            if preset:
+                t = preset
+                cam_fovy = preset.get("fovy", cam_fovy)
+
         parent      = t.get("parent_frame", "world")
         x           = t.get("x",     0.0)
         y           = t.get("y",     0.0)
@@ -49,6 +67,10 @@ def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
         height      = periph.get("height", 480)
         fps         = periph.get("fps",     30)
         sensor_name = f"{name}_camera"
+
+        # fovy (vertical, degrees) → horizontal_fov (radians)
+        fovy_rad = math.radians(cam_fovy)
+        hfov_rad = 2.0 * math.atan(math.tan(fovy_rad / 2.0) * width / height)
 
         parts.append(f"""
     <!-- {name} camera (generated from YAML peripherals) -->
@@ -68,13 +90,13 @@ def _build_cameras_urdf_from_yaml(peripherals: list) -> str:
         <sensor type="camera" name="{sensor_name}">
             <update_rate>{fps}</update_rate>
             <camera>
-                <horizontal_fov>1.047</horizontal_fov>
+                <horizontal_fov>{hfov_rad:.4f}</horizontal_fov>
                 <image>
                     <width>{width}</width>
                     <height>{height}</height>
                     <format>R8G8B8</format>
                 </image>
-                <clip><near>0.1</near><far>100</far></clip>
+                <clip><near>0.01</near><far>100</far></clip>
             </camera>
             <always_on>true</always_on>
             <visualize>true</visualize>
@@ -203,7 +225,8 @@ def generate_robot_description(robot_config: dict, use_sim, mujoco_model_path: s
 
     # Dynamically inject camera URDF blocks from YAML peripherals
     peripherals = robot_config.get("peripherals", [])
-    cameras_xml = _build_cameras_urdf_from_yaml(peripherals)
+    sim_platform = robot_config.get("simulation", {}).get("platform", "gazebo") if is_sim else "gazebo"
+    cameras_xml = _build_cameras_urdf_from_yaml(peripherals, platform=sim_platform)
     if cameras_xml:
         full_urdf = base_urdf.replace("</robot>", cameras_xml + "\n</robot>", 1)
         print(f"[robot_config] Injected {sum(1 for p in peripherals if p.get('type') == 'camera')} camera(s) into URDF from YAML")
