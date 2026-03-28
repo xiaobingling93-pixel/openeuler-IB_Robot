@@ -8,9 +8,8 @@ This module handles:
 URDF building (xacro processing + camera injection) is in description.py.
 """
 
-import json
-import shutil
-import subprocess
+
+import os
 import tempfile
 from pathlib import Path
 
@@ -85,6 +84,31 @@ def generate_ros2_control_nodes(robot_config, use_sim, auto_start_controllers='t
         return nodes, spawners_dict, deferred_sim_spawners, {}
 
     print("[robot_config] Creating ros2_control nodes")
+
+    # Pre-flight check: calibration file must exist for real hardware
+    if not is_sim:
+        calib_file_raw = ros2_control_config.get("calib_file", "")
+        if calib_file_raw:
+            calib_file_resolved = resolve_ros_path(calib_file_raw)
+            if not Path(calib_file_resolved).exists():
+                print("[robot_config] " + "=" * 60)
+                print(f"[robot_config] ERROR: Calibration file not found!")
+                print(f"[robot_config]   Resolved path: {calib_file_resolved}")
+                print(f"[robot_config]   Raw path:      {calib_file_raw}")
+                print(
+                    f"[robot_config]   HOME=$HOME -> {os.environ.get('HOME', '(unset)')}"
+                )
+                print("[robot_config] ")
+                print("[robot_config]   Please run calibration first:")
+                calib_port = ros2_control_config.get("port", "/dev/ttyACM0")
+                print(
+                    "[robot_config]     ros2 run so101_hardware calibrate_arm --arm follower --port " + calib_port
+                )
+                print("[robot_config] " + "=" * 60)
+                raise RuntimeError(
+                    f"Calibration file not found: {calib_file_resolved}. "
+                    f"Run: ros2 run so101_hardware calibrate_arm --arm follower --port " + calib_port
+                )
 
     # Validate joint configuration
     validate_joint_config(robot_config)

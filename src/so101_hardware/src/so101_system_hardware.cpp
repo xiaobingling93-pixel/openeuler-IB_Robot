@@ -63,7 +63,9 @@ hardware_interface::CallbackReturn SO101SystemHardware::on_configure(
   std::ifstream f(calib_file_);
   if (!f.is_open())
   {
-    RCLCPP_WARN(rclcpp::get_logger("SO101SystemHardware"), "Calibration file not found: %s", calib_file_.c_str());
+    RCLCPP_ERROR(rclcpp::get_logger("SO101SystemHardware"),
+      "Calibration file not found: %s. Run: ros2 run so101_hardware calibrate_arm --arm follower --port %s",
+      calib_file_.c_str(), port_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
 
