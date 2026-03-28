@@ -100,6 +100,25 @@ def generate_teleop_nodes(robot_config: dict, robot_description_dict: dict = Non
         print(f"[DEBUG] teleop.py: calib_file_raw: {calib_file_raw}")
         print(f"[DEBUG] teleop.py: calib_file_expanded: {calib_file_expanded}")
         device_param['calib_file'] = calib_file_expanded
+        if not Path(calib_file_expanded).exists():
+            print("[teleop_builder] " + "=" * 60)
+            print(f"[teleop_builder] ERROR: Leader arm calibration file not found!")
+            print(f"[teleop_builder]   Resolved path: {calib_file_expanded}")
+            print(f"[teleop_builder]   Raw path:      {calib_file_raw}")
+            print(
+                f"[teleop_builder]   HOME=$HOME -> {os.environ.get('HOME', '(unset)')}"
+            )
+            calib_port = device_config.get("port", "/dev/ttyACM0")
+            print("[teleop_builder] ")
+            print("[teleop_builder]   Please run calibration first:")
+            print(
+                "[teleop_builder]     ros2 run so101_hardware calibrate_arm --arm leader --port " + calib_port
+            )
+            print("[teleop_builder] " + "=" * 60)
+            raise RuntimeError(
+                f"Calibration file not found: {calib_file_expanded}. "
+                f"Run: ros2 run so101_hardware calibrate_arm --arm leader --port " + calib_port
+            )
     if 'joint_mapping' in device_config:
         device_param['joint_mapping'] = device_config['joint_mapping']
 
