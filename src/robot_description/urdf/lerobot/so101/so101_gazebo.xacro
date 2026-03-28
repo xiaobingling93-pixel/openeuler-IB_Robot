@@ -11,4 +11,26 @@
         </plugin>
     </gazebo>
 
+    <!-- ============================================= -->
+    <!-- Gazebo material: uniform dark (sts3215 black) -->
+    <!-- ============================================= -->
+    <!-- Gazebo cannot color individual visuals within a link separately.
+         Uniform black matches the real robot's dominant visual appearance. -->
+    <xacro:macro name="gz_black" params="link_name">
+        <gazebo reference="${link_name}">
+            <visual><material>
+                <ambient>0.12 0.12 0.12 1</ambient>
+                <diffuse>0.12 0.12 0.12 1</diffuse>
+                <specular>0.15 0.15 0.15 1</specular>
+            </material></visual>
+        </gazebo>
+    </xacro:macro>
+    <xacro:gz_black link_name="base"/>
+    <xacro:gz_black link_name="shoulder"/>
+    <xacro:gz_black link_name="upper_arm"/>
+    <xacro:gz_black link_name="lower_arm"/>
+    <xacro:gz_black link_name="wrist"/>
+    <xacro:gz_black link_name="gripper"/>
+    <xacro:gz_black link_name="jaw"/>
+
 </robot>

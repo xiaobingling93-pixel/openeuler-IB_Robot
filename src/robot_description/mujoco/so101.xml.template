@@ -58,6 +58,7 @@
        Mesh assets (STL files from robot_description package)
        ================================================================ -->
   <asset>
+    <material name="mat_robot" specular="0.25" shininess="0.1"/>
     <mesh name="base_motor_holder"  file="base_motor_holder_so101_v1.stl"  />
     <mesh name="base_so101"         file="base_so101_v2.stl"                />
     <mesh name="sts3215"            file="sts3215_03a_v1.stl"               />
@@ -79,7 +80,8 @@
        ================================================================ -->
   <default>
     <default class="visual">
-      <geom contype="0" conaffinity="0" group="1" rgba="1.0 0.5 0.0 1" />
+      <geom contype="0" conaffinity="0" group="1" rgba="1.0 0.5 0.0 1"
+            material="mat_robot" />
     </default>
     <default class="collision">
       <geom contype="1" conaffinity="1" group="0" rgba="0 0 0 0" />
@@ -87,8 +89,7 @@
   </default>
 
   <worldbody>
-    <light diffuse=".6 .6 .6" pos="0 0 2" dir="0 0 -1" />
-    <light diffuse=".4 .4 .4" pos="0.5 0.5 1" dir="-0.5 -0.5 -1" />
+    <!-- 补光由场景 headlight ambient 提供，不再额外加点光源 -->
 
     <!-- Cameras are injected here at runtime by mujoco_adapter._generate_robot_mujoco_xml()
          based on YAML peripherals with driver="opencv". See file header for convention. -->

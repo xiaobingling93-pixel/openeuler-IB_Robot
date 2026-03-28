@@ -10,10 +10,9 @@ Architecture:
     - gz_create_entity=None → robot.launch.py starts deferred_sim_spawners directly
 
 Camera convention:
-    YAML transform stores Gazebo/URDF convention (camera looks in +Z).
-    This adapter converts to MuJoCo convention (camera looks in -Z) by:
-        mj_roll = yaml_roll + pi
-    Switching platform: mujoco ↔ gazebo does NOT require changing YAML values.
+    When use_default_transform=True, camera poses are loaded from
+    camera_presets.py which stores MuJoCo-native values directly
+    (camera forward = -Z).  No cross-platform conversion is needed.
 """
 
 import math
@@ -185,6 +184,8 @@ class MujocoAdapter(SimBackendAdapter):
         if worldbody is None:
             raise RuntimeError("[mujoco_adapter] <worldbody> not found in so101.xml.template")
 
+        from .camera_presets import get_preset
+
         for periph in peripherals:
             if periph.get('type') != 'camera':
                 continue
@@ -195,20 +196,27 @@ class MujocoAdapter(SimBackendAdapter):
             cam_name = f'{name}_camera'    # MJCF name convention, e.g. "top_camera"
                                            # must match _build_camera_remappings
 
+            # --- preset lookup ---
             t = periph.get('transform', {})
+            cam_fovy = periph.get('fovy', 60)
+            if periph.get('use_default_transform', False):
+                preset = get_preset("mujoco", name)
+                if preset:
+                    t = preset
+                    cam_fovy = preset.get('fovy', cam_fovy)
+
             parent_frame = t.get('parent_frame', 'world')
             pos = f"{t.get('x', 0.0)} {t.get('y', 0.0)} {t.get('z', 0.0)}"
 
-            # URDF/Gazebo → MuJoCo orientation conversion:
-            #   URDF camera looks in +Z; MuJoCo camera looks in -Z.
-            #   Only roll needs adjustment: mj_roll = yaml_roll + pi
-            #   pitch and yaw are identical between the two conventions.
-            mj_roll = t.get('roll', 0.0) + math.pi
+            # Camera orientation: values are already in MuJoCo convention
+            # (camera forward = -Z) when loaded from presets.
+            # No cross-platform conversion needed.
+            mj_roll = t.get('roll', 0.0)
             mj_pitch = t.get('pitch', 0.0)
             mj_yaw = t.get('yaw', 0.0)
             euler = f'{mj_roll:.6f} {mj_pitch:.6f} {mj_yaw:.6f}'
 
-            fovy = str(periph.get('fovy', 60))
+            fovy = str(cam_fovy)
             resolution = f"{periph.get('width', 640)} {periph.get('height', 480)}"
 
             cam_elem = ET.Element('camera')
