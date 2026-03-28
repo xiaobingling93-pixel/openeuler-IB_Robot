@@ -184,6 +184,15 @@ source /opt/ros/humble/setup.sh
 [[ -f "${WORKSPACE}/install/setup.sh" ]] && source "${WORKSPACE}/install/setup.sh"
 
 # ============================================================================
+# openEuler / RedHat FFmpeg header fix
+# On these systems, FFmpeg headers live under /usr/include/ffmpeg/ instead of
+# /usr/include/.  Export CPATH so that packages like usb_cam can find them.
+# ============================================================================
+if [[ -d /usr/include/ffmpeg ]]; then
+    export CPATH="/usr/include/ffmpeg${CPATH:+:$CPATH}"
+fi
+
+# ============================================================================
 # Build
 # ============================================================================
 cd "${WORKSPACE}"
